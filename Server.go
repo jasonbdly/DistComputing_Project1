@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
-	"bufio"
 	"strings"
 )
 
@@ -16,7 +16,7 @@ const (
 
 func main() {
 	//Set up a listener on the configured protocol, host, and port
-	listener, err := net.Listen(TYPE, HOST + ":" + PORT)
+	listener, err := net.Listen(TYPE, HOST+":"+PORT)
 	if err != nil {
 		fmt.Println("Error creating listener: ", err.Error())
 		os.Exit(1)
@@ -25,12 +25,13 @@ func main() {
 	//Queue the listener's Close behavior to be fired once this function scope closes
 	defer listener.Close()
 
-	fmt.Println("Created listener on " + HOST + ":" + PORT)
-	
+	fmt.Println("Listening on " + TYPE + "://" + HOST + ":" + PORT)
+
 	//Essentially a while(true) loop
 	for {
 		//Block until a connection is received from a remote client
 		connection, err := listener.Accept()
+
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
@@ -39,11 +40,19 @@ func main() {
 		//Run the "handleRequest" function for this connection in a separate thread
 		go handleRequest(connection)
 	}
+
+	fmt.Println("Server shutting down")
 }
 
 func handleRequest(connection net.Conn) {
 	//Defer closing of the connection until this function's scope is closed
 	defer connection.Close()
+
+	clientConnectionDetails := connection.RemoteAddr()
+
+	connectionIdStr := clientConnectionDetails.Network() + "://" + clientConnectionDetails.String()
+
+	fmt.Println(connectionIdStr + " connected")
 
 	//Set up buffered reader for the new connection
 	connectionReader := bufio.NewReader(connection)
@@ -64,13 +73,15 @@ func handleRequest(connection net.Conn) {
 				break
 			}
 
-			fmt.Println("Received Message: " + message)
+			fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 
 			//Uppercase the message
 			transformedMessage := strings.ToUpper(message)
 
 			//Write the uppercased message back to the remote connection
 			connection.Write([]byte(transformedMessage + "\n"))
+
+			fmt.Println("Sent to [" + connectionIdStr + "]: " + transformedMessage)
 		} else {
 			timesReceivedBlank++
 		}
@@ -80,4 +91,6 @@ func handleRequest(connection net.Conn) {
 			break
 		}
 	}
+
+	fmt.Println(connectionIdStr + " disconnected")
 }
