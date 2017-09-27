@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"net"
 	"bufio"
 	"os"
@@ -14,18 +15,29 @@ const (
 )
 
 func main() {
-	connection, _ := net.Dial(TYPE, HOST + ":" + PORT)
+	connection, err := net.Dial(TYPE, HOST + ":" + PORT)
+
+	if err != nil {
+		fmt.Println("Failed to create connection to the server. Is the server listening?")
+		os.Exit(1)
+	}
+
+	defer connection.Close()
+
+	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		reader := bufio.NewReader(os.Stdin)
-
 		fmt.Print("Text to Send: ")
 		
 		text, _ := reader.ReadString('\n')
 
-		fmt.Fprintf(connection, text + "\n")
+		text = strings.Trim(text, "\n")
 
-		message, _ := bufio.NewReader(connection).ReadString('\n')
-		fmt.Print("Response: " + message)
+		if len(text) > 0 {
+			fmt.Fprintf(connection, text + "\n")
+
+			message, _ := bufio.NewReader(connection).ReadString('\n')
+			fmt.Print("Response: " + message)
+		}
 	}
 }
