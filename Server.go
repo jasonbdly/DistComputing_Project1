@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -14,9 +15,31 @@ const (
 	TYPE = "tcp"
 )
 
+func getLANAddress() string {
+	addrs, err := net.InterfaceAddrs()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.To4().String()
+			}
+		}
+	}
+
+	fmt.Println("Failed to retrieve LAN address")
+	os.Exit(1)
+}
+
 func main() {
 	//Set up a listener on the configured protocol, host, and port
-	listener, err := net.Listen(TYPE, HOST+":"+PORT)
+	//listener, err := net.Listen(TYPE, HOST+":"+PORT)
+	lanAddress := getLANAddress()
+	listener, err := net.Listen(TYPE, lanAddress+":"+PORT)
 	if err != nil {
 		fmt.Println("Error creating listener: ", err.Error())
 		os.Exit(1)
@@ -25,7 +48,8 @@ func main() {
 	//Queue the listener's Close behavior to be fired once this function scope closes
 	defer listener.Close()
 
-	fmt.Println("Listening on " + TYPE + "://" + HOST + ":" + PORT)
+	//fmt.Println("Listening on " + TYPE + "://" + HOST + ":" + PORT)
+	fmt.Println("Listening on " + TYPE + "://" + lanAddress + ":" + PORT)
 
 	//Essentially a while(true) loop
 	for {
@@ -69,7 +93,7 @@ func handleRequest(connection net.Conn) {
 		if len(message) != 0 {
 			timesReceivedBlank = 0
 
-			if strings.Trim(message, " \n") == "EXIT" {
+			if message == "EXIT" {
 				break
 			}
 
