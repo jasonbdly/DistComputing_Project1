@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 )
 
 const (
@@ -15,7 +14,7 @@ const (
 	TYPE = "tcp"
 )
 
-func checkErr(err error.Error, message string) {
+func checkErr(err error, message string) {
 	if err != nil {
 		fmt.Println(message, err.Error())
 		os.Exit(1)
@@ -28,34 +27,31 @@ type RoutingRegisterEntry struct {
 }
 
 type IncomingConnection struct {
-	Type string
+	Type       string
 	Connection net.Conn
 }
 
-func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel chan <- net.Conn, routingRegistry []RoutingRegisterEntry) {
+func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel chan<- net.Conn, routingRegistry *[]RoutingRegisterEntry) {
 	queuedClients := []net.Conn{}
 
 	for {
 		//Block until a new client connection request is received
 		newConnection := <-incomingChannel
-		
+
 		if newConnection.Type == "SERVER" {
 			//Server
-			routingRegistry = append(routingRegistry, &RoutingRegisterEntry{
-				ServerConnection: newConnection,
-				ClientConnections: []net.Conn{}
-			})
+			*routingRegistry = append(*routingRegistry, RoutingRegisterEntry{ServerConnection: newConnection.Connection, ClientConnections: []net.Conn{}})
 		} else {
 			//We'll need to wait until a server has connected before assigning any clients
-			if len(routingRegistry) > 0 {
+			if len(*routingRegistry) > 0 {
 				//Client
-				var bestServerEntry RoutingRegisterEntry
-				for _, serverEntry := range routingRegister {
+				var bestServerEntry *RoutingRegisterEntry
+				for _, serverEntry := range *routingRegistry {
 					if bestServerEntry == nil || len(serverEntry.ClientConnections) < len(bestServerEntry.ClientConnections) {
-						bestServerEntry = serverEntry
+						bestServerEntry = &serverEntry
 					}
 				}
-				
+
 				var clientConnection net.Conn
 
 				if len(queuedClients) > 0 {
@@ -94,7 +90,7 @@ func main() {
 	routingRegistry := []RoutingRegisterEntry{}
 
 	//Start the server assigner thread
-	go connectionAssigner(newConnectionChannel, assignedChannel, routingRegistry)
+	go connectionAssigner(newConnectionChannel, assignedChannel, &routingRegistry)
 
 	//Set up central listener process
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -125,16 +121,13 @@ func handleConnection(connection net.Conn) {
 	checkErr(err, "Failed to read from remote connection")
 
 	firstMessage = strings.Trim(firstMessage, "\n")
-	newConnectionChannel <- &IncomingConnection{
-		Type: firstMessage,
-		Connection: connection
-	}
+	newConnectionChannel <- IncomingConnection{Type: firstMessage, Connection: connection}
 
 	//Only need to facilitate connection if the connector is a "client" type
 	//Otherwise, it must be a server, so we just keep track of it to set up routing
 	//between it and other clients.
 	if firstMessage == "CLIENT" {
-		assignedServer <- assignedChannel
+		assignedServer := <-assignedChannel
 
 		serverReader := bufio.NewReader(assignedServer)
 
@@ -152,7 +145,7 @@ func handleConnection(connection net.Conn) {
 
 			//Break this connection if the client sent a disconnect signal
 			if message == "EXIT" {
-				break;
+				break
 			}
 
 			serverMessage, err := serverReader.ReadString('\n')
