@@ -31,7 +31,9 @@ func printTransmissionMetrics() {
 
 }
 
+var useTerminal bool = true
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
+
 func main() {
 	//Create a buffer to interface with the os.Stdin InputStream
 	reader := bufio.NewScanner(os.Stdin)
@@ -45,6 +47,15 @@ func main() {
 
 	if len(serverRouterAddress) == 0 {
 		serverRouterAddress = SERVER_ROUTER
+	}
+
+	fmt.Print("File Name to Use (leave empty for terminal input): ")
+
+	reader.Scan()
+	fileName := reader.Text()
+
+	if len(fileName) == 0 {
+		useTerminal = true
 	}
 
 	connection, err := net.Dial(TYPE, serverRouterAddress)

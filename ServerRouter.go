@@ -23,6 +23,27 @@ func checkErr(err error, message string) {
 	}
 }
 
+func getLANAddress() string {
+	addrs, err := net.InterfaceAddrs()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.To4().String()
+			}
+		}
+	}
+
+	fmt.Println("Failed to retrieve LAN address")
+	os.Exit(1)
+	return "localhost"
+}
+
 type RoutingRegisterEntry struct {
 	ServerAddr string
 	NumClients int
@@ -118,6 +139,7 @@ func main() {
 	defer listener.Close()
 
 	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
+	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + getLANAddress())
 
 	for {
 		//Wait for a connection

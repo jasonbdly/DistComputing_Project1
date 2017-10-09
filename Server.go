@@ -58,7 +58,6 @@ func main() {
 	if len(serverRouterAddress) == 0 {
 		serverRouterAddress = SERVER_ROUTER
 	}
-
 	fmt.Println("[SERVER] CONNECTING TO ROUTER")
 
 	//Attempt to connect to the ServerRouter
@@ -70,12 +69,10 @@ func main() {
 
 	fmt.Println("[SERVER] SENT DISCOVER MESSAGE TO ROUTER")
 
-	//buffRouterConnection := bufio.NewReader(routerConnection)
 	routerReader := bufio.NewScanner(routerConnection)
 
 	routerReader.Scan()
 	routerReader.Text()
-	//checkErr(err, "Failed to received acceptance message from ServerRouter")}
 
 	fmt.Println("[SERVER] RECEIVED DISCOVERY ACCEPTANCE FROM ROUTER - CLOSING CONNECTION")
 
@@ -140,10 +137,10 @@ func handleRequest(connection net.Conn) {
 			}
 
 			//Uppercase the message
-			transformedMessage := strings.ToUpper(message)
+			message := strings.ToUpper(message)
 
 			//Write the uppercased message back to the remote connection
-			connection.Write([]byte(transformedMessage + "\n"))
+			connection.Write([]byte(message + "\n"))
 
 			fmt.Println("[SERVER] WROTE TO CLIENT: " + message)
 		}
