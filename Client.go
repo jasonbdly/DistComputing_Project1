@@ -192,26 +192,34 @@ func main() {
 				}
 			}
 		}
+		//if !useTerminal {
+		//connection, _ := net.Dial(TYPE, serverRouterAddress)
+		//checkErr(err, "Failed to close to ServerRouter")
+		//Notify the server that we've started
+		connection.Write([]byte("EXIT\n"))
+		time.Sleep(10000 * time.Millisecond)
+
+		//}
 
 	}
 
 	//Essentially a while(true) loop
-	for {
-		/*if(useTerminal){
-			text = []string{}
-			//Print out a prompt to the client
-			fmt.Print("Text to Send: ")
+	//for {
+	/*if(useTerminal){
+		text = []string{}
+		//Print out a prompt to the client
+		fmt.Print("Text to Send: ")
 
-			//Block until the enter key is pressed, then read any new content into <text>
-			reader.Scan()
-			text = append(text,reader.Text())
-		}*/
+		//Block until the enter key is pressed, then read any new content into <text>
+		reader.Scan()
+		text = append(text,reader.Text())
+	}*/
 
-		//Trim the "newline" character from the read text
-		//text = strings.Trim(text, "\n")
+	//Trim the "newline" character from the read text
+	//text = strings.Trim(text, "\n")
 
-		//Only handle the text is the text isn't empty
-		if len(text) > 0 {
+	//Only handle the text is the text isn't empty
+	/*	if len(text) > 0 {
 			fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
 
 			//Use the Fprintf to send the inputted text to the remote connection
@@ -247,13 +255,6 @@ func main() {
 			}
 		}
 
-		if !useTerminal {
-			connection, _ := net.Dial(TYPE, serverRouterAddress)
-			//checkErr(err, "Failed to close to ServerRouter")
-			//Notify the server that we've started
-			time.Sleep(10000 * time.Millisecond)
-			connection.Write([]byte("EXIT\n"))
-			break
-		}
-	}
+
+	}*/
 }
