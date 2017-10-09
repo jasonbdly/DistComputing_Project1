@@ -97,25 +97,28 @@ func main() {
 
 
 	var text string = "";
+	var useTerminal bool = true;
+	fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
+	reader.Scan()
+	path := reader.Text()
+
+	if(len(path) != 0){
+		
+		text_array,_ := ioutil.ReadFile(path)
+		text = string(text_array)	
+		useTerminal = false	
+	}
+
 	//Essentially a while(true) loop
 	for {
 
-		fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
-		reader.Scan()
-		path := reader.Text()
-
-		if(len(path) == 0){
+		if(useTerminal){
 			//Print out a prompt to the client
 			fmt.Print("Text to Send: ")
 
 			//Block until the enter key is pressed, then read any new content into <text>
 			reader.Scan()
 			text = reader.Text()
-				
-		}else{
-			text_array,_ := ioutil.ReadFile(path)
-			text = string(text_array)
-    		
 		}
 
 		
@@ -147,6 +150,14 @@ func main() {
 				printTransmissionMetrics()
 				break
 			}
+		}
+
+		if(!useTerminal){
+			connection,_ := net.Dial(TYPE, serverRouterAddress)
+			//checkErr(err, "Failed to close to ServerRouter")
+			//Notify the server that we've started
+			connection.Write([]byte("EXIT\n"))
+			break
 		}
 	}
 }
