@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"io/ioutil"
 )
 
 const (
@@ -29,6 +30,12 @@ func printTransmissionMetrics() {
 	fmt.Println(int(total_time) / 1000 / len(transmissionTimes))
 	return
 
+}
+
+func check(e error) {
+    if e != nil {
+        panic(e)
+    }
 }
 
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
@@ -72,14 +79,31 @@ func main() {
 
 	fmt.Println("Connected to ServerRouter")
 
+
+	var text string = ""
 	//Essentially a while(true) loop
 	for {
-		//Print out a prompt to the client
-		fmt.Print("Text to Send: ")
 
-		//Block until the enter key is pressed, then read any new content into <text>
+		fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
 		reader.Scan()
-		text := reader.Text()
+		path := reader.Text()
+
+		if(len(path) == 0){
+			//Print out a prompt to the client
+			fmt.Print("Text to Send: ")
+
+			//Block until the enter key is pressed, then read any new content into <text>
+			reader.Scan()
+			text = reader.Text()
+				
+		}else{
+			text_array, err := ioutil.ReadFile(path)
+			check(err)
+			text = string(text_array)
+    		
+		}
+
+		
 
 		//Trim the "newline" character from the read text
 		text = strings.Trim(text, "\n")
