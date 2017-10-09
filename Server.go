@@ -3,16 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"strings"
-)
-
-const (
-	HOST = "localhost"
-	PORT = "5555"
-	TYPE = "tcp"
 )
 
 func getLANAddress() string {
@@ -33,39 +26,70 @@ func getLANAddress() string {
 
 	fmt.Println("Failed to retrieve LAN address")
 	os.Exit(1)
+	return "localhost"
+}
+
+//var HOST = getLANAddress()
+var HOST = ""
+
+const (
+	PORT          = "5557"
+	TYPE          = "tcp"
+	SERVER_ROUTER = "localhost:5556"
+)
+
+func checkErr(err error, message string) {
+	if err != nil {
+		fmt.Println(message, err.Error())
+		os.Exit(1)
+	}
 }
 
 func main() {
+	fmt.Println("[SERVER] CONNECTING TO ROUTER")
+
+	//Attempt to connect to the ServerRouter
+	routerConnection, err := net.Dial(TYPE, SERVER_ROUTER)
+	checkErr(err, "Failed to connect to ServerRouter")
+
+	//Notify the server that we've started
+	routerConnection.Write([]byte("SERVER\n"))
+
+	fmt.Println("[SERVER] SENT DISCOVER MESSAGE TO ROUTER")
+
+	//buffRouterConnection := bufio.NewReader(routerConnection)
+	routerReader := bufio.NewScanner(routerConnection)
+
+	routerReader.Scan()
+	routerReader.Text()
+	//checkErr(err, "Failed to received acceptance message from ServerRouter")}
+
+	fmt.Println("[SERVER] RECEIVED DISCOVERY ACCEPTANCE FROM ROUTER - CLOSING CONNECTION")
+
+	routerConnection.Close()
+
 	//Set up a listener on the configured protocol, host, and port
-	//listener, err := net.Listen(TYPE, HOST+":"+PORT)
-	lanAddress := getLANAddress()
-	listener, err := net.Listen(TYPE, lanAddress+":"+PORT)
-	if err != nil {
-		fmt.Println("Error creating listener: ", err.Error())
-		os.Exit(1)
-	}
+	listener, err := net.Listen(TYPE, HOST+":"+PORT)
+	checkErr(err, "Error creating listener")
 
 	//Queue the listener's Close behavior to be fired once this function scope closes
 	defer listener.Close()
 
-	//fmt.Println("Listening on " + TYPE + "://" + HOST + ":" + PORT)
-	fmt.Println("Listening on " + TYPE + "://" + lanAddress + ":" + PORT)
+	fmt.Println("[SERVER] STARTED LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
 
 	//Essentially a while(true) loop
 	for {
 		//Block until a connection is received from a remote client
 		connection, err := listener.Accept()
+		checkErr(err, "Error accepting connection")
 
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
-		}
+		fmt.Println("[SERVER] NEW CONNECTION ACCEPTED - HANDLING IN NEW THREAD")
 
 		//Run the "handleRequest" function for this connection in a separate thread
 		go handleRequest(connection)
 	}
 
-	fmt.Println("Server shutting down")
+	fmt.Println("[SERVER] SHUTTING DOWN")
 }
 
 func handleRequest(connection net.Conn) {
@@ -76,28 +100,27 @@ func handleRequest(connection net.Conn) {
 
 	connectionIdStr := clientConnectionDetails.Network() + "://" + clientConnectionDetails.String()
 
-	fmt.Println(connectionIdStr + " connected")
+	fmt.Println("[SERVER] CONNECTION THREAD STARTED FOR " + connectionIdStr)
 
 	//Set up buffered reader for the new connection
-	connectionReader := bufio.NewReader(connection)
-
-	timesReceivedBlank := 0
+	connectionReader := bufio.NewScanner(connection)
 
 	//Continue listening for messages from the remote client until "EXIT" is received
 	for {
+		fmt.Println("[SERVER] WAITING FOR MESSAGE")
+
 		//Read the next line from the connection's input buffer
-		message, _ := connectionReader.ReadString('\n')
+		connectionReader.Scan()
+		message := connectionReader.Text()
 
-		message = strings.Trim(message, "\n")
+		if len(message) > 0 {
+			message = strings.Trim(message, "\n")
 
-		if len(message) != 0 {
-			timesReceivedBlank = 0
+			fmt.Println("[SERVER] READ FROM CLIENT: " + message)
 
 			if message == "EXIT" {
 				break
 			}
-
-			fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 
 			//Uppercase the message
 			transformedMessage := strings.ToUpper(message)
@@ -105,16 +128,9 @@ func handleRequest(connection net.Conn) {
 			//Write the uppercased message back to the remote connection
 			connection.Write([]byte(transformedMessage + "\n"))
 
-			fmt.Println("Sent to [" + connectionIdStr + "]: " + transformedMessage)
-		} else {
-			timesReceivedBlank++
-		}
-
-		//Cleanly handles closing the connection if a direct interrupt is used instead of sending "EXIT"
-		if timesReceivedBlank == 5 {
-			break
+			fmt.Println("[SERVER] WROTE TO CLIENT: " + message)
 		}
 	}
 
-	fmt.Println(connectionIdStr + " disconnected")
+	fmt.Println("[SERVER] CLOSING CONNECTION THREAD")
 }

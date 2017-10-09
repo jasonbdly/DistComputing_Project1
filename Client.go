@@ -9,14 +9,13 @@ import (
 )
 
 const (
-	HOST = "localhost"
-	PORT = "5555"
-	TYPE = "tcp"
+	TYPE          = "tcp"
+	SERVER_ROUTER = "localhost:5556"
 )
 
 func main() {
 	//Attempt to connect to a listener on HOST:PORT via the TYPE protocol
-	connection, err := net.Dial(TYPE, HOST+":"+PORT)
+	connection, err := net.Dial(TYPE, SERVER_ROUTER)
 
 	if err != nil {
 		fmt.Println("Failed to create connection to the server. Is the server listening?")
@@ -33,10 +32,17 @@ func main() {
 	fmt.Println("Connected to: " + connectionIdStr)
 
 	//Create a buffer to interface with the os.Stdin InputStream
-	reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewScanner(os.Stdin)
 
 	//Create a buffer to interface with the remote connection
-	connReader := bufio.NewReader(connection)
+	connReader := bufio.NewScanner(connection)
+
+	fmt.Fprintf(connection, "CLIENT\n")
+
+	connReader.Scan()
+	connReader.Text()
+
+	fmt.Println("Connected to ServerRouter")
 
 	//Essentially a while(true) loop
 	for {
@@ -44,7 +50,8 @@ func main() {
 		fmt.Print("Text to Send: ")
 
 		//Block until the enter key is pressed, then read any new content into <text>
-		text, _ := reader.ReadString('\n')
+		reader.Scan()
+		text := reader.Text()
 
 		//Trim the "newline" character from the read text
 		text = strings.Trim(text, "\n")
@@ -54,11 +61,12 @@ func main() {
 			fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
 
 			//Use the Fprintf to send the inputted text to the remote connection
-			fmt.Fprintf(connection, text+"\n")
+			connection.Write([]byte(text + "\n"))
 
 			if text != "EXIT" {
 				//Block until a newline character is received from the connection
-				message, _ := connReader.ReadString('\n')
+				connReader.Scan()
+				message := connReader.Text()
 
 				//Print out the response to the console
 				fmt.Println("Received from [" + connectionIdStr + "]: " + message)
