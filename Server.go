@@ -46,10 +46,23 @@ func checkErr(err error, message string) {
 }
 
 func main() {
+	reader := bufio.NewScanner(os.Stdin)
+
+	//Print out a prompt to the client
+	fmt.Print("Server Router Address (leave empty for default): ")
+
+	//Block until the enter key is pressed, then read any new content into <text>
+	reader.Scan()
+	serverRouterAddress := reader.Text()
+
+	if len(serverRouterAddress) == 0 {
+		serverRouterAddress = SERVER_ROUTER
+	}
+
 	fmt.Println("[SERVER] CONNECTING TO ROUTER")
 
 	//Attempt to connect to the ServerRouter
-	routerConnection, err := net.Dial(TYPE, SERVER_ROUTER)
+	routerConnection, err := net.Dial(TYPE, serverRouterAddress)
 	checkErr(err, "Failed to connect to ServerRouter")
 
 	//Notify the server that we've started
@@ -93,11 +106,15 @@ func main() {
 }
 
 func handleRequest(connection net.Conn) {
+
+	//fmt.Println("server handle request...")
 	//Defer closing of the connection until this function's scope is closed
 	defer connection.Close()
 
+	// getting remote network address
 	clientConnectionDetails := connection.RemoteAddr()
 
+	//	connectionIdStr = network address name://network address
 	connectionIdStr := clientConnectionDetails.Network() + "://" + clientConnectionDetails.String()
 
 	fmt.Println("[SERVER] CONNECTION THREAD STARTED FOR " + connectionIdStr)

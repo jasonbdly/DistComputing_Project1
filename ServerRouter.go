@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -23,9 +24,6 @@ func checkErr(err error, message string) {
 }
 
 type RoutingRegisterEntry struct {
-	ServerConnection  net.Conn
-	ClientConnections []net.Conn
-
 	ServerAddr string
 	NumClients int
 }
@@ -57,6 +55,13 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 			fmt.Println("[ASSIGNER] SEND CONNECTED SIGNAL TO SERVER")
 			(*newConnection.Connection).Write([]byte("CONNECTED\n"))
 			defer (*newConnection.Connection).Close()
+
+			//Creating slice for storing number of connections for this server
+			if len(totalServerConnections) > 0 {
+				totalServerConnections[len(totalServerConnections)-1] = make([]int, 0)
+			} else {
+				totalServerConnections[0] = make([]int, 0)
+			}
 		} else {
 			//We'll need to wait until a server has connected before assigning any clients
 			if len(*routingRegistry) > 0 {
@@ -96,11 +101,15 @@ var assignedChannel = make(chan string, 1)
 
 //Main thread logic
 func main() {
+
 	//Initialize the client-server routing registry
 	routingRegistry := []RoutingRegisterEntry{}
 
 	//Start the server assigner thread
 	go connectionAssigner(newConnectionChannel, assignedChannel, &routingRegistry)
+
+	//Start concurrent session monitor
+	go averageConnectionsMonitor(routingRegistry)
 
 	//Set up central listener
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -108,7 +117,6 @@ func main() {
 
 	defer listener.Close()
 
-	//fmt.Println("Server Router listening on " + TYPE + "://" + HOST + ":" + PORT)
 	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
 
 	for {
@@ -122,10 +130,87 @@ func main() {
 		go handleConnection(connection)
 	}
 
-	//fmt.Println("Server Router stopping")
 	fmt.Println("[SERVERROUTER] SHUTTING DOWN")
+	printConnectionAveragesMetrics()
 }
 
+var totalConnections = make([]int, 0)         //Slice (list) of number of total connections for all servers every 250 ms
+var totalServerConnections = make([][]int, 1) //Total number of client connections on a per server basis
+func averageConnectionsMonitor(entries []RoutingRegisterEntry) {
+	//func averageConnectionsMonitor(*[]RoutingRegisterEntry entries){
+	//entries := make([]RoutingRegisterEntry,0)
+	//Creating ticker (reoccuring timer)
+	ticker := time.NewTicker(time.Millisecond * 250)
+	go func() {
+		for _ = range ticker.C {
+			total := 0
+			//Finding total number of connections
+			for index, element := range entries {
+				//Computing total
+				total = total + element.NumClients
+				//Adding current total to server connections slice
+				totalServerConnections[index] = append(totalServerConnections[index], element.NumClients)
+			}
+			//Adding total to slice
+			totalConnections = append(totalConnections, total)
+		}
+	}()
+
+	print_ticker := time.NewTicker(time.Millisecond * 5000)
+	go func() {
+		for _ = range print_ticker.C {
+			printConnectionAveragesMetrics()
+		}
+	}()
+
+}
+
+func printConnectionAveragesMetrics() {
+
+	fmt.Println("\nConcurrent Connection Metrics:")
+	// Printing total
+	total := 0
+	for _, element := range totalConnections {
+		total = total + element
+	}
+	fmt.Print("\tTotal average connections : ")
+	fmt.Println(total / len(totalConnections))
+
+	// Printing server totals
+	for index, element := range totalServerConnections {
+		totalServer := 0
+		for _, element := range element {
+			totalServer = totalServer + element
+		}
+		fmt.Print("\tAverage connections for server #")
+		fmt.Print(index)
+		fmt.Print(" : ")
+		fmt.Print(totalServer / len(totalServerConnections))
+
+		//fmt.Println("\tAverage connections for server #[%d]: [%d]", index, totalServer/len(totalServerConnections))
+	}
+	return
+}
+
+func printAverageMessageMetrics() {
+	fmt.Println("Message Size Metrics:")
+	// Printing total
+	total := 0
+	for index, element := range messageSizeList {
+		//fmt.Print("Message #[%d] size: [%d]", index, element)
+		fmt.Print("Message #")
+		fmt.Print(index)
+		fmt.Print(" size:")
+		fmt.Println(element)
+		total = total + element
+	}
+
+	fmt.Print("Average message size: ")
+	fmt.Println(total / len(messageSizeList))
+	return
+}
+
+var messageSizeList = make([]int, 0) //Slize(list) of message sizes
 func handleConnection(connection net.Conn) {
 	fmt.Println("[SERVERROUTER] WAITING FOR CONNECTION TYPE MESSAGE")
 
@@ -178,6 +263,9 @@ func handleConnection(connection net.Conn) {
 			serverConnection.Write([]byte(message + "\n"))
 
 			fmt.Println("[SERVERROUTER] WROTE TO SERVER: " + message)
+
+			//Adding size of current message to list of sizes
+			messageSizeList = append(messageSizeList, len(message))
 
 			//Break this connection if the client sent a disconnect signal
 			if message == "EXIT" {
