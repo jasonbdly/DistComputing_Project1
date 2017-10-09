@@ -49,26 +49,6 @@ func main() {
 		serverRouterAddress = SERVER_ROUTER
 	}
 
-	/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
-
-		reader.Scan()
-		fileName := reader.Text()
-
-		if(len(fileName) == 0){
-			//Print out a prompt to the client
-			fmt.Print("Text to Send: ")
-
-			//Block until the enter key is pressed, then read any new content into <text>
-			reader.Scan()
-			text = reader.Text()
-
-		}else{
-			text_array, err := ioutil.ReadFile(fileName)
-			check(err)
-			text = string(text_array)
-
-		}*/
-
 	connection, err := net.Dial(TYPE, serverRouterAddress)
 	if err != nil {
 		fmt.Println("Failed to create connection to the server. Is the server listening?")
@@ -127,25 +107,18 @@ func main() {
 
 				if text != "EXIT" {
 					//Block until a newline character is received from the connection
-
-					var message string = ""
-					fmt.Println("Received from [" + connectionIdStr + "]: ")
-					//for {
-					message = ""
 					connReader.Scan()
-					message = connReader.Text()
+					message := connReader.Text()
+
+					fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 
 					if len(message) == 0 {
 						break
 					}
 					fmt.Println(message)
-					//}
 
 					//Sdding transmission times to list (slice)
 					transmissionTimes = append(transmissionTimes, time.Since(timeSent))
-
-					//Print out the response to the console
-					//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 				} else {
 					printTransmissionMetrics()
 					break
@@ -155,30 +128,27 @@ func main() {
 		}
 	} else {
 		for _, element := range message_split {
+			element = strings.Trim(element, "\n")
+
 			if len(element) > 0 {
 				fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
 
 				//Use the Fprintf to send the inputted text to the remote connection
-				connection.Write([]byte(text + "\n"))
+				connection.Write([]byte(element + "\n"))
 
 				// getting time message was sent to compare with time reply was received
 				timeSent := time.Now()
 
-				if text != "EXIT" {
+				if element != "EXIT" {
 					//Block until a newline character is received from the connection
-
-					var message string = ""
-					fmt.Println("Received from [" + connectionIdStr + "]: ")
-					//for {
-					message = ""
 					connReader.Scan()
-					message = connReader.Text()
+					message := connReader.Text()
+
+					fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 
 					if len(message) == 0 {
 						break
 					}
-					fmt.Println(message)
-					//}
 
 					//Sdding transmission times to list (slice)
 					transmissionTimes = append(transmissionTimes, time.Since(timeSent))
@@ -191,58 +161,9 @@ func main() {
 				}
 			}
 		}
-	}
 
-	//Essentially a while(true) loop
-	for {
-		//Trim the "newline" character from the read text
-		//text = strings.Trim(text, "\n")
-
-		//Only handle the text is the text isn't empty
-		if len(text) > 0 {
-			fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
-
-			//Use the Fprintf to send the inputted text to the remote connection
-			connection.Write([]byte(text + "\n"))
-
-			// getting time message was sent to compare with time reply was received
-			timeSent := time.Now()
-
-			if text != "EXIT" {
-				//Block until a newline character is received from the connection
-
-				var message string = ""
-				fmt.Println("Received from [" + connectionIdStr + "]: ")
-				for {
-					message = ""
-					connReader.Scan()
-					message = connReader.Text()
-
-					if len(message) == 0 {
-						break
-					}
-					fmt.Println(message)
-				}
-
-				//Sdding transmission times to list (slice)
-				transmissionTimes = append(transmissionTimes, time.Since(timeSent))
-
-				//Print out the response to the console
-				//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
-			} else {
-				printTransmissionMetrics()
-				break
-			}
-		}
-
-		if !useTerminal {
-			connection, _ := net.Dial(TYPE, serverRouterAddress)
-			//checkErr(err, "Failed to close to ServerRouter")
-			//Notify the server that we've started
-			time.Sleep(10000 * time.Millisecond)
-			connection.Write([]byte("EXIT\n"))
-			time.Sleep(10000 * time.Millisecond)
-			break
-		}
+		//Notify the server that we've started
+		connection.Write([]byte("EXIT\n"))
+		time.Sleep(10000 * time.Millisecond)
 	}
 }
