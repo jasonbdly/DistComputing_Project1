@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"strings"
 	"time"
-	"io/ioutil"
 )
 
 const (
@@ -32,7 +32,6 @@ func printTransmissionMetrics() {
 
 }
 
-
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
 
 func main() {
@@ -50,25 +49,25 @@ func main() {
 		serverRouterAddress = SERVER_ROUTER
 	}
 
-/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
+	/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
 
-	reader.Scan()
-	fileName := reader.Text()
-
-	if(len(fileName) == 0){
-		//Print out a prompt to the client
-		fmt.Print("Text to Send: ")
-
-		//Block until the enter key is pressed, then read any new content into <text>
 		reader.Scan()
-		text = reader.Text()
-			
-	}else{
-		text_array, err := ioutil.ReadFile(fileName)
-		check(err)
-		text = string(text_array)
-		
-	}*/
+		fileName := reader.Text()
+
+		if(len(fileName) == 0){
+			//Print out a prompt to the client
+			fmt.Print("Text to Send: ")
+
+			//Block until the enter key is pressed, then read any new content into <text>
+			reader.Scan()
+			text = reader.Text()
+
+		}else{
+			text_array, err := ioutil.ReadFile(fileName)
+			check(err)
+			text = string(text_array)
+
+		}*/
 
 	connection, err := net.Dial(TYPE, serverRouterAddress)
 	if err != nil {
@@ -95,24 +94,23 @@ func main() {
 
 	fmt.Println("Connected to ServerRouter")
 
-
-	var text string = "";
-	var useTerminal bool = true;
+	var text string = ""
+	var useTerminal bool = true
 	fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
 	reader.Scan()
 	path := reader.Text()
 
-	if(len(path) != 0){
-		
-		text_array,_ := ioutil.ReadFile(path)
-		text = string(text_array)	
-		useTerminal = false	
+	if len(path) != 0 {
+
+		text_array, _ := ioutil.ReadFile(path)
+		text = string(text_array)
+		useTerminal = false
 	}
 
 	//Essentially a while(true) loop
 	for {
 
-		if(useTerminal){
+		if useTerminal {
 			//Print out a prompt to the client
 			fmt.Print("Text to Send: ")
 
@@ -120,8 +118,6 @@ func main() {
 			reader.Scan()
 			text = reader.Text()
 		}
-
-		
 
 		//Trim the "newline" character from the read text
 		text = strings.Trim(text, "\n")
@@ -152,11 +148,11 @@ func main() {
 			}
 		}
 
-		if(!useTerminal){
-			connection,_ := net.Dial(TYPE, serverRouterAddress)
+		if !useTerminal {
 			//checkErr(err, "Failed to close to ServerRouter")
 			//Notify the server that we've started
 			connection.Write([]byte("EXIT\n"))
+			time.Sleep(10000 * time.Millisecond)
 			break
 		}
 	}
