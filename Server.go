@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -13,6 +12,7 @@ const (
 	HOST = "localhost"
 	PORT = "5555"
 	TYPE = "tcp"
+	ROUTER_PORT = "5556"
 )
 
 func getLANAddress() string {
@@ -33,11 +33,42 @@ func getLANAddress() string {
 
 	fmt.Println("Failed to retrieve LAN address")
 	os.Exit(1)
+	return ""
 }
 
 func main() {
 	//Set up a listener on the configured protocol, host, and port
 	//listener, err := net.Listen(TYPE, HOST+":"+PORT)
+	//fmt.Println("0")
+
+///*
+	//Create a buffer to interface with the os.Stdin InputStream
+	reader := bufio.NewReader(os.Stdin)
+
+	//Print out a prompt to the client
+	fmt.Print("Server Router Address (leave empty for default): ")
+	
+	//Block until the enter key is pressed, then read any new content into <text>
+	input,err:= reader.ReadString('\n')
+	input = strings.Trim(input, "\n")
+	
+	var newHost string = ""
+	if(len(input) == 0){
+		newHost = HOST
+	}else{
+		newHost = input
+	}
+
+	fmt.Println("newHost = " +  newHost)
+
+
+	//connection, err := net.Dial("tcp", "localhost:5556")
+	connection, err := net.Dial(TYPE, newHost+":"+PORT)
+//*/
+	//connection, err := net.Dial(TYPE, HOST+":"+PORT)
+	fmt.Fprintf(connection, "SERVER\n") // updating routing regristry
+	connection.Close()
+
 	lanAddress := getLANAddress()
 	listener, err := net.Listen(TYPE, lanAddress+":"+PORT)
 	if err != nil {
@@ -68,12 +99,17 @@ func main() {
 	fmt.Println("Server shutting down")
 }
 
+
 func handleRequest(connection net.Conn) {
+
+	//fmt.Println("server handle request...")
 	//Defer closing of the connection until this function's scope is closed
 	defer connection.Close()
 
+	// getting remote network address
 	clientConnectionDetails := connection.RemoteAddr()
 
+	//	connectionIdStr = network address name://network address
 	connectionIdStr := clientConnectionDetails.Network() + "://" + clientConnectionDetails.String()
 
 	fmt.Println(connectionIdStr + " connected")
@@ -117,4 +153,6 @@ func handleRequest(connection net.Conn) {
 	}
 
 	fmt.Println(connectionIdStr + " disconnected")
+	//fmt.Println("...server handle request")
 }
+
