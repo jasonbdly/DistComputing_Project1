@@ -32,13 +32,9 @@ func printTransmissionMetrics() {
 
 }
 
-func check(e error) {
-    if e != nil {
-        panic(e)
-    }
-}
 
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
+
 func main() {
 	//Create a buffer to interface with the os.Stdin InputStream
 	reader := bufio.NewScanner(os.Stdin)
@@ -53,6 +49,26 @@ func main() {
 	if len(serverRouterAddress) == 0 {
 		serverRouterAddress = SERVER_ROUTER
 	}
+
+/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
+
+	reader.Scan()
+	fileName := reader.Text()
+
+	if(len(fileName) == 0){
+		//Print out a prompt to the client
+		fmt.Print("Text to Send: ")
+
+		//Block until the enter key is pressed, then read any new content into <text>
+		reader.Scan()
+		text = reader.Text()
+			
+	}else{
+		text_array, err := ioutil.ReadFile(fileName)
+		check(err)
+		text = string(text_array)
+		
+	}*/
 
 	connection, err := net.Dial(TYPE, serverRouterAddress)
 	if err != nil {
@@ -80,7 +96,7 @@ func main() {
 	fmt.Println("Connected to ServerRouter")
 
 
-	var text string = ""
+	var text string = "";
 	//Essentially a while(true) loop
 	for {
 
@@ -97,8 +113,7 @@ func main() {
 			text = reader.Text()
 				
 		}else{
-			text_array, err := ioutil.ReadFile(path)
-			check(err)
+			text_array,_ := ioutil.ReadFile(path)
 			text = string(text_array)
     		
 		}
