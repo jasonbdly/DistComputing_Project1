@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"strings"
 	"time"
-	"io/ioutil"
 )
 
 const (
@@ -32,7 +32,6 @@ func printTransmissionMetrics() {
 
 }
 
-
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
 
 func main() {
@@ -50,25 +49,25 @@ func main() {
 		serverRouterAddress = SERVER_ROUTER
 	}
 
-/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
+	/*	fmt.Print("File Name to Use (leave empty for terminal input): ")
 
-	reader.Scan()
-	fileName := reader.Text()
-
-	if(len(fileName) == 0){
-		//Print out a prompt to the client
-		fmt.Print("Text to Send: ")
-
-		//Block until the enter key is pressed, then read any new content into <text>
 		reader.Scan()
-		text = reader.Text()
-			
-	}else{
-		text_array, err := ioutil.ReadFile(fileName)
-		check(err)
-		text = string(text_array)
-		
-	}*/
+		fileName := reader.Text()
+
+		if(len(fileName) == 0){
+			//Print out a prompt to the client
+			fmt.Print("Text to Send: ")
+
+			//Block until the enter key is pressed, then read any new content into <text>
+			reader.Scan()
+			text = reader.Text()
+
+		}else{
+			text_array, err := ioutil.ReadFile(fileName)
+			check(err)
+			text = string(text_array)
+
+		}*/
 
 	connection, err := net.Dial(TYPE, serverRouterAddress)
 	if err != nil {
@@ -95,36 +94,121 @@ func main() {
 
 	fmt.Println("Connected to ServerRouter")
 
-
-	var text string = "";
-	var useTerminal bool = true;
+	//text := []string{}
+	var text string = ""
+	var useTerminal bool = true
 	fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
 	reader.Scan()
 	path := reader.Text()
 
-	if(len(path) != 0){
-		
-		text_array,_ := ioutil.ReadFile(path)
-		text = string(text_array)	
-		useTerminal = false	
+	message_split := []string{}
+	if len(path) != 0 {
+
+		text_array, _ := ioutil.ReadFile(path)    // getting file
+		text = string(text_array)                 // setting to string
+		message_split = strings.Split(text, "\n") // splitting string at new line chars
+		useTerminal = false
+	}
+
+	if useTerminal {
+		for {
+			fmt.Print("Text to Send: ")
+			//Block until the enter key is pressed, then read any new content into <text>
+			reader.Scan()
+			text = reader.Text()
+
+			if len(text) > 0 {
+				fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
+
+				//Use the Fprintf to send the inputted text to the remote connection
+				connection.Write([]byte(text + "\n"))
+
+				// getting time message was sent to compare with time reply was received
+				timeSent := time.Now()
+
+				if text != "EXIT" {
+					//Block until a newline character is received from the connection
+
+					var message string = ""
+					fmt.Println("Received from [" + connectionIdStr + "]: ")
+					//for {
+					message = ""
+					connReader.Scan()
+					message = connReader.Text()
+
+					if len(message) == 0 {
+						break
+					}
+					fmt.Println(message)
+					//}
+
+					//Sdding transmission times to list (slice)
+					transmissionTimes = append(transmissionTimes, time.Since(timeSent))
+
+					//Print out the response to the console
+					//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
+				} else {
+					printTransmissionMetrics()
+					break
+				}
+			}
+
+		}
+	} else {
+		for _, element := range message_split {
+			if len(element) > 0 {
+				fmt.Println("Sent to [" + connectionIdStr + "]: " + text)
+
+				//Use the Fprintf to send the inputted text to the remote connection
+				connection.Write([]byte(text + "\n"))
+
+				// getting time message was sent to compare with time reply was received
+				timeSent := time.Now()
+
+				if text != "EXIT" {
+					//Block until a newline character is received from the connection
+
+					var message string = ""
+					fmt.Println("Received from [" + connectionIdStr + "]: ")
+					//for {
+					message = ""
+					connReader.Scan()
+					message = connReader.Text()
+
+					if len(message) == 0 {
+						break
+					}
+					fmt.Println(message)
+					//}
+
+					//Sdding transmission times to list (slice)
+					transmissionTimes = append(transmissionTimes, time.Since(timeSent))
+
+					//Print out the response to the console
+					//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
+				} else {
+					printTransmissionMetrics()
+					break
+				}
+			}
+		}
+
 	}
 
 	//Essentially a while(true) loop
 	for {
-
-		if(useTerminal){
+		/*if(useTerminal){
+			text = []string{}
 			//Print out a prompt to the client
 			fmt.Print("Text to Send: ")
 
 			//Block until the enter key is pressed, then read any new content into <text>
 			reader.Scan()
-			text = reader.Text()
-		}
-
-		
+			text = append(text,reader.Text())
+		}*/
 
 		//Trim the "newline" character from the read text
-		text = strings.Trim(text, "\n")
+		//text = strings.Trim(text, "\n")
 
 		//Only handle the text is the text isn't empty
 		if len(text) > 0 {
@@ -138,24 +222,36 @@ func main() {
 
 			if text != "EXIT" {
 				//Block until a newline character is received from the connection
-				connReader.Scan()
-				message := connReader.Text()
+
+				var message string = ""
+				fmt.Println("Received from [" + connectionIdStr + "]: ")
+				for {
+					message = ""
+					connReader.Scan()
+					message = connReader.Text()
+
+					if len(message) == 0 {
+						break
+					}
+					fmt.Println(message)
+				}
 
 				//Sdding transmission times to list (slice)
 				transmissionTimes = append(transmissionTimes, time.Since(timeSent))
 
 				//Print out the response to the console
-				fmt.Println("Received from [" + connectionIdStr + "]: " + message)
+				//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 			} else {
 				printTransmissionMetrics()
 				break
 			}
 		}
 
-		if(!useTerminal){
-			connection,_ := net.Dial(TYPE, serverRouterAddress)
+		if !useTerminal {
+			connection, _ := net.Dial(TYPE, serverRouterAddress)
 			//checkErr(err, "Failed to close to ServerRouter")
 			//Notify the server that we've started
+			time.Sleep(10000 * time.Millisecond)
 			connection.Write([]byte("EXIT\n"))
 			break
 		}
