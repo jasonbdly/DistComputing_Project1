@@ -153,6 +153,7 @@ func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
 					}
 				}
 
+				fmt.Println("\n===== METRICS =====")
 				for _, finalMetric := range finalMetrics {
 					fmt.Println(finalMetric)
 				}
