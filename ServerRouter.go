@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -110,6 +111,57 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 	}
 }
 
+type Metric struct {
+	Type          string
+	Value         int64
+	AggregationOP string
+	Units         string
+}
+
+func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
+	metricsByType := map[string][]Metric{}
+
+	for {
+		select {
+		case metricData := <-metricChannel:
+			if metricsByType[metricData.Type] == nil {
+				metricsByType[metricData.Type] = []Metric{}
+			}
+			metricsByType[metricData.Type] = append(metricsByType[metricData.Type], metricData)
+		case calcSignal := <-calcMetricsSignal:
+			if calcSignal {
+				finalMetrics := []string{}
+
+				//CALC METRICS
+				for metricType := range metricsByType {
+					metricDataForType := metricsByType[metricType]
+
+					aggregationType := metricDataForType[0].AggregationOP
+					metricType := metricDataForType[0].Type
+					metricUnits := metricDataForType[0].Units
+
+					var totalValue int64 = 0
+					for _, metricData := range metricDataForType {
+						totalValue += metricData.Value
+					}
+
+					if aggregationType == "TOTAL" {
+						//finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+string(totalValue)+" "+metricUnits)
+						finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+strconv.FormatInt(totalValue, 10)+" "+metricUnits)
+					} else {
+						finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+strconv.FormatInt(totalValue/int64(len(metricDataForType)), 10)+" "+metricUnits)
+					}
+				}
+
+				for _, finalMetric := range finalMetrics {
+					fmt.Println(finalMetric)
+				}
+			}
+		default:
+		}
+	}
+}
+
 //Set up channel for synchronized communication with the
 //connection mapper channel. A buffer size of 1 is used to
 //ensure connection mapping requests are handled in order.
@@ -120,9 +172,11 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 var newConnectionChannel = make(chan IncomingConnection, 1)
 var assignedChannel = make(chan string, 1)
 
+var metricsChannel = make(chan Metric, 1)
+var metricsSignalChannel = make(chan bool, 1)
+
 //Main thread logic
 func main() {
-
 	//Initialize the client-server routing registry
 	routingRegistry := []RoutingRegisterEntry{}
 
@@ -130,7 +184,23 @@ func main() {
 	go connectionAssigner(newConnectionChannel, assignedChannel, &routingRegistry)
 
 	//Start concurrent session monitor
-	go averageConnectionsMonitor(routingRegistry)
+	go MetricThread(metricsChannel, metricsSignalChannel)
+
+	metricsChannel <- Metric{Type: "TEST", Value: 100, AggregationOP: "TOTAL", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST", Value: 200, AggregationOP: "TOTAL", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST", Value: 300, AggregationOP: "TOTAL", Units: "ns"}
+
+	metricsChannel <- Metric{Type: "TEST2", Value: 100, AggregationOP: "AVG", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST2", Value: 200, AggregationOP: "AVG", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST2", Value: 300, AggregationOP: "AVG", Units: "ns"}
+
+	metricsSignalChannel <- true
+
+	metricsChannel <- Metric{Type: "TEST2", Value: 500, AggregationOP: "AVG", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST2", Value: 400, AggregationOP: "AVG", Units: "ns"}
+	metricsChannel <- Metric{Type: "TEST2", Value: 500, AggregationOP: "AVG", Units: "ns"}
+
+	metricsSignalChannel <- true
 
 	//Set up central listener
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
