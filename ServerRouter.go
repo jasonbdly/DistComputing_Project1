@@ -78,12 +78,7 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 			(*newConnection.Connection).Write([]byte("CONNECTED\n"))
 			defer (*newConnection.Connection).Close()
 
-			//Creating slice for storing number of connections for this server
-			if len(totalServerConnections) > 0 {
-				totalServerConnections[len(totalServerConnections)-1] = make([]int, 0)
-			} else {
-				totalServerConnections[0] = make([]int, 0)
-			}
+			metricsChannel <- Metric{Type: "SERVER_CONNECTIONS", Value: 1, OP: "TOTAL"}
 		} else {
 			//We'll need to wait until a server has connected before assigning any clients
 			if len(*routingRegistry) > 0 {
@@ -102,6 +97,8 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 
 				bestServerEntry.NumClients++
 
+				metricsChannel <- Metric{Type: "CLIENT_CONNECTIONS[" + bestServerEntry.ServerAddr + "]", Value: 1, OP: "TOTAL"}
+
 				fmt.Println("[ASSIGNER] SERVER ASSIGNED TO CLIENT")
 				assignedChannel <- bestServerEntry.ServerAddr
 			} else {
@@ -112,10 +109,10 @@ func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel
 }
 
 type Metric struct {
-	Type          string
-	Value         int64
-	AggregationOP string
-	Units         string
+	Type  string
+	Value int64
+	OP    string
+	Units string
 }
 
 func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
@@ -136,7 +133,7 @@ func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
 				for metricType := range metricsByType {
 					metricDataForType := metricsByType[metricType]
 
-					aggregationType := metricDataForType[0].AggregationOP
+					operation := metricDataForType[0].OP
 					metricType := metricDataForType[0].Type
 					metricUnits := metricDataForType[0].Units
 
@@ -145,11 +142,10 @@ func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
 						totalValue += metricData.Value
 					}
 
-					if aggregationType == "TOTAL" {
-						//finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+string(totalValue)+" "+metricUnits)
-						finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+strconv.FormatInt(totalValue, 10)+" "+metricUnits)
-					} else {
-						finalMetrics = append(finalMetrics, aggregationType+" - "+metricType+" = "+strconv.FormatInt(totalValue/int64(len(metricDataForType)), 10)+" "+metricUnits)
+					if operation == "TOTAL" {
+						finalMetrics = append(finalMetrics, operation+" - "+metricType+" = "+strconv.FormatInt(totalValue, 10)+" "+metricUnits)
+					} else if operation == "AVG" {
+						finalMetrics = append(finalMetrics, operation+" - "+metricType+" = "+strconv.FormatInt(totalValue/int64(len(metricDataForType)), 10)+" "+metricUnits)
 					}
 				}
 
@@ -187,22 +183,6 @@ func main() {
 	//Start concurrent session monitor
 	go MetricThread(metricsChannel, metricsSignalChannel)
 
-	metricsChannel <- Metric{Type: "TEST", Value: 100, AggregationOP: "TOTAL", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST", Value: 200, AggregationOP: "TOTAL", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST", Value: 300, AggregationOP: "TOTAL", Units: "ns"}
-
-	metricsChannel <- Metric{Type: "TEST2", Value: 100, AggregationOP: "AVG", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST2", Value: 200, AggregationOP: "AVG", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST2", Value: 300, AggregationOP: "AVG", Units: "ns"}
-
-	metricsSignalChannel <- true
-
-	metricsChannel <- Metric{Type: "TEST2", Value: 500, AggregationOP: "AVG", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST2", Value: 400, AggregationOP: "AVG", Units: "ns"}
-	metricsChannel <- Metric{Type: "TEST2", Value: 500, AggregationOP: "AVG", Units: "ns"}
-
-	metricsSignalChannel <- true
-
 	//Set up central listener
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
 	checkErr(err, "Failed to create listener.")
@@ -211,6 +191,13 @@ func main() {
 
 	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
 	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + getLANAddress())
+
+	go func() {
+		for {
+			metricsSignalChannel <- true
+			time.Sleep(5 * time.Second)
+		}
+	}()
 
 	for {
 		//Wait for a connection
@@ -224,86 +211,8 @@ func main() {
 	}
 
 	fmt.Println("[SERVERROUTER] SHUTTING DOWN")
-	printConnectionAveragesMetrics()
 }
 
-var totalConnections = make([]int, 0)         //Slice (list) of number of total connections for all servers every 250 ms
-var totalServerConnections = make([][]int, 1) //Total number of client connections on a per server basis
-func averageConnectionsMonitor(entries []RoutingRegisterEntry) {
-	//func averageConnectionsMonitor(*[]RoutingRegisterEntry entries){
-	//entries := make([]RoutingRegisterEntry,0)
-	//Creating ticker (reoccuring timer)
-	ticker := time.NewTicker(time.Millisecond * 250)
-	go func() {
-		for _ = range ticker.C {
-			total := 0
-			//Finding total number of connections
-			for index, element := range entries {
-				//Computing total
-				total = total + element.NumClients
-				//Adding current total to server connections slice
-				totalServerConnections[index] = append(totalServerConnections[index], element.NumClients)
-			}
-			//Adding total to slice
-			totalConnections = append(totalConnections, total)
-		}
-	}()
-
-	print_ticker := time.NewTicker(time.Millisecond * 5000)
-	go func() {
-		for _ = range print_ticker.C {
-			printConnectionAveragesMetrics()
-		}
-	}()
-
-}
-
-func printConnectionAveragesMetrics() {
-
-	fmt.Println("\nConcurrent Connection Metrics:")
-	// Printing total
-	total := 0
-	for _, element := range totalConnections {
-		total = total + element
-	}
-	fmt.Print("\tTotal average connections : ")
-	fmt.Println(total / len(totalConnections))
-
-	// Printing server totals
-	for index, element := range totalServerConnections {
-		totalServer := 0
-		for _, element := range element {
-			totalServer = totalServer + element
-		}
-		fmt.Print("\tAverage connections for server #")
-		fmt.Print(index)
-		fmt.Print(" : ")
-		fmt.Print(totalServer / len(totalServerConnections))
-
-		//fmt.Println("\tAverage connections for server #[%d]: [%d]", index, totalServer/len(totalServerConnections))
-	}
-	return
-}
-
-func printAverageMessageMetrics() {
-	fmt.Println("Message Size Metrics:")
-	// Printing total
-	total := 0
-	for index, element := range messageSizeList {
-		//fmt.Print("Message #[%d] size: [%d]", index, element)
-		fmt.Print("Message #")
-		fmt.Print(index)
-		fmt.Print(" size:")
-		fmt.Println(element)
-		total = total + element
-	}
-
-	fmt.Print("Average message size: ")
-	fmt.Println(total / len(messageSizeList))
-	return
-}
-
-var messageSizeList = make([]int, 0) //Slize(list) of message sizes
 func handleConnection(connection net.Conn) {
 	fmt.Println("[SERVERROUTER] WAITING FOR CONNECTION TYPE MESSAGE")
 
@@ -358,7 +267,7 @@ func handleConnection(connection net.Conn) {
 			fmt.Println("[SERVERROUTER] WROTE TO SERVER: " + message)
 
 			//Adding size of current message to list of sizes
-			messageSizeList = append(messageSizeList, len(message))
+			metricsChannel <- Metric{Type: "MESSAGE_SIZE", Value: int64(len(message)), OP: "AVG"}
 
 			//Break this connection if the client sent a disconnect signal
 			if message == "EXIT" {

@@ -29,7 +29,6 @@ func printTransmissionMetrics() {
 	fmt.Print("Average transmission time (in seconds): ")
 	fmt.Println(int(total_time) / 1000 / len(transmissionTimes))
 	return
-
 }
 
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
@@ -156,11 +155,12 @@ func main() {
 					//Print out the response to the console
 					//fmt.Println("Received from [" + connectionIdStr + "]: " + message)
 				} else {
-					printTransmissionMetrics()
 					break
 				}
 			}
 		}
+
+		printTransmissionMetrics()
 
 		//Notify the server that we've started
 		connection.Write([]byte("EXIT\n"))
