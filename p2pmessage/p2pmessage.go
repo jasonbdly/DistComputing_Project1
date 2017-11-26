@@ -27,7 +27,7 @@ func CreateMessage(Type string, Src_IP string, MSG string, Rec_IP string) (msg *
 
 func (msg *Message) Send_Async(receiver string) {
 	//if testing {
-		log.Println("send(ip) to " + receiver)
+		log.Println("send async(ip) to " + receiver)
 		log.Println(msg.Src_IP)
 	//}
 
@@ -61,7 +61,7 @@ func (msg *Message) Send(receiver string) Message {
 
 	//Defer closing the connection to the remote listener until this function's scope closes
 	defer connection.Close()
-	
+
 	enc := json.NewEncoder(connection)
 	enc.Encode(msg)
 

@@ -39,14 +39,14 @@ func getLANAddress() string {
 	for _, address := range addrs {
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
-				return ipnet.IP.To4().String()
+				return ipnet.IP.To4().String() + ":" + PORT
 			}
 		}
 	}
 
 	fmt.Println("Failed to retrieve LAN address")
 	os.Exit(1)
-	return "localhost"
+	return "localhost" + ":" + PORT
 }
 
 type RoutingRegisterEntry struct {
@@ -253,7 +253,7 @@ func handleConnection(connection net.Conn) {
 			selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
 			msg := p2pmessage.CreateMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
 			msg.Send_Async(sRouter_addr)
-			
+			 
 			break
 		case "RESPONSE":
 			fmt.Println(msg.MSG) // printing capitalized text

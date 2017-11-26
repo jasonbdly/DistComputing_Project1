@@ -26,8 +26,16 @@ const (
 )
 
 func main() {
-	identifyMyself() // IDing self to server router to become available to peers
+	fmt.Println(getLANAddress())
+
 	go server()      // Starting server thread
+
+	time.Sleep(time.Second * 5)
+
+	identifyMyself() // IDing self to server router to become available to peers
+
+	time.Sleep(time.Second * 5)
+	
 	go client()      // Starting client thread
 }
 
@@ -42,14 +50,14 @@ func getLANAddress() string {
 	for _, address := range addrs {
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
-				return ipnet.IP.To4().String()
+				return ipnet.IP.To4().String() + ":" + PORT
 			}
 		}
 	}
 
 	fmt.Println("Failed to retrieve LAN address")
 	os.Exit(1)
-	return "localhost"
+	return "localhost" + ":" + PORT
 }
 
 func printTransmissionMetrics() {
@@ -232,6 +240,7 @@ func handleRequest(connection net.Conn) {
 	dec := json.NewDecoder(connection)
 	for {
 		if err := dec.Decode(&msg); err != nil {
+			fmt.Println("ERROR: " + err.Error())
 			return
 		}
 		switch msg.Type {
