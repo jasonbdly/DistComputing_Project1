@@ -8,11 +8,16 @@ import (
 	"os"
 	"strings"
 	"time"
+	"log"
+	"encoding/json"
+
 )
 
 var HOST = ""
 var sRouter_addr = ""
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
+
+var testing bool = true
 
 const (
 	PORT          = "5557"
@@ -47,10 +52,11 @@ func createMessage(Type string, src_IP string, MSG string, rec_IP string) (msg *
 //sends message to a peer
 func (msg *Message) send(receiver string) {
 	if testing {
-		log.Println("sendPrivate")
+		log.Println("send")
 	}
 
-	connection, err := net.Dial(TYPE, serverRouterAddress)
+	//connection, err := net.Dial(TYPE, serverRouterAddress)
+	connection, err := net.Dial(TYPE, msg.rec_IP)
 	if err != nil {
 		fmt.Println("Failed to create connection to the server. Is the server listening?")
 		os.Exit(1)
@@ -100,9 +106,11 @@ func printTransmissionMetrics() {
 	return
 }
 
-func introduceMyself() {
+func identifyMyself() {
 	//Print out a prompt to the client
 	fmt.Print("Server Router Address (leave empty for default): ")
+
+	reader := bufio.NewScanner(os.Stdin)
 
 	//Block until the enter key is pressed, then read any new content into <text>
 	reader.Scan()
@@ -113,7 +121,7 @@ func introduceMyself() {
 	}
 	sRouter_addr = serverRouterAddress
 
-	id_msg = createMessage("IDENTIFY", getLANAddress(), "", serverRouterAddress)
+	id_msg := createMessage("IDENTIFY", getLANAddress(), "", serverRouterAddress)
 	id_msg.send(serverRouterAddress)
 	// wait for ack?
 }
@@ -145,7 +153,7 @@ func client() {
 			text = reader.Text()
 
 			if len(text) > 0 {
-				q_msg = createMessage("QUERY", getLANAddress(), make([]string, text), sRouter_addr) // creating query message to send
+				q_msg := createMessage("QUERY", getLANAddress(), text, sRouter_addr) // creating query message to send
 				q_msg.send(sRouter_addr)                                                            // sending
 			}
 
@@ -154,7 +162,7 @@ func client() {
 		for _, element := range message_split { // for each element of string array
 			element = strings.Trim(element, "\n") // trim end line char
 			if len(element) > 0 {
-				q_msg = createMessage("QUERY", getLANAddress(), make([]string, element), sRouter_addr) // creating query messsage to send
+				q_msg := createMessage("QUERY", getLANAddress(), element, sRouter_addr) // creating query messsage to send
 				q_msg.send(sRouter_addr)                                                               // sending
 
 			}
@@ -165,7 +173,7 @@ func client() {
 }
 
 func server() {
-	reader := bufio.NewScanner(os.Stdin)
+	//reader := bufio.NewScanner(os.Stdin)
 
 	//Set up a listener on the configured protocol, host, and port
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -196,28 +204,28 @@ func handleRequest(connection net.Conn) {
 	if testing {
 		log.Println("receive")
 	}
-	defer conn.Close()
-	dec := json.NewDecoder(conn)
+	defer connection.Close()
+	dec := json.NewDecoder(connection)
 	msg := new(Message)
 	for {
 		if err := dec.Decode(msg); err != nil {
 			return
 		}
-		switch msg.Kind {
+		switch msg.Type {
 		case "IDENTIFY":
 			// do nothing, shouldnt have gotten this
 			break
 		case "QUERY":
-			if len(message) > 0 {
+			if len(msg.MSG) > 0 {
 				// message = strings.Trim(message, "\n") // should be trimmed already
 
-				fmt.Println("READ FROM PEER " + msg.IP + ":" + message)
+				fmt.Println("READ FROM PEER " + msg.src_IP + ":" + msg.MSG)
 
 				//Uppercase the message
-				message := strings.ToUpper(message)
+				message := strings.ToUpper(msg.MSG)
 
 				//Write the uppercased message back to the remote connection
-				res_msg = createMessage("RESPONSE", getLANAddress(), message, msg.src_IP)
+				res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.src_IP)
 				res_msg.send(sRouter_addr)
 
 			}
