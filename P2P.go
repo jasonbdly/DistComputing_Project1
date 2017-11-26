@@ -2,15 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"os"
 	"strings"
 	"time"
-	"log"
-	"encoding/json"
-
 )
 
 var HOST = ""
@@ -27,7 +26,7 @@ const (
 
 //message sent out to the server
 type Message struct {
-	Type   string //type of message ("IDENTIFY","RESPONSE","QUERY","ACK","DISCONNECT")
+	Type   string //type of message ("IDENTIFY","RESPONSE","QUERY","IP_QUERY","ACK","DISCONNECT")
 	src_IP string //Ip address of my computer
 	MSG    string //message
 	rec_IP string // IP address of message recipient
@@ -52,7 +51,7 @@ func createMessage(Type string, src_IP string, MSG string, rec_IP string) (msg *
 //sends message to a peer
 func (msg *Message) send(receiver string) {
 	if testing {
-		log.Println("send")
+		log.Println("send(ip)")
 	}
 
 	//connection, err := net.Dial(TYPE, serverRouterAddress)
@@ -64,6 +63,16 @@ func (msg *Message) send(receiver string) {
 
 	//Defer closing the connection to the remote listener until this function's scope closes
 	defer connection.Close()
+
+	enc := json.NewEncoder(connection)
+	enc.Encode(msg)
+}
+
+//sends message to a peer
+func (msg *Message) send(conn net.Conn) {
+	if testing {
+		log.Println("send(conn)")
+	}
 
 	enc := json.NewEncoder(connection)
 	enc.Encode(msg)
@@ -153,17 +162,73 @@ func client() {
 			text = reader.Text()
 
 			if len(text) > 0 {
-				q_msg := createMessage("QUERY", getLANAddress(), text, sRouter_addr) // creating query message to send
-				q_msg.send(sRouter_addr)                                                            // sending
+
+				// query srouter for peer ip
+				peer_ip_q_msg := createMessage("QUERY", getLANAddress(), "", sRouter_addr) // creating query message to send
+				peer_ip_q_msg.send(sRouter_addr)
+
+				//receiving reply with peer ip
+				listener, err := net.Listen(TYPE, HOST+":"+PORT)
+				checkErr(err, "Error creating listener while requesting peer IP")
+
+				//Queue the listener's Close behavior to be fired once this function scope closes
+				defer listener.Close()
+
+				//Block until a connection is received from a remote client
+				connection, err := listener.Accept()
+				checkErr(err, "Error accepting connection while requesting peer IP")
+
+				dec := json.NewDecoder(connection)
+				msg := new(Message)
+
+				peer_ip := msg.Message //reply
+
+				//send message to new ip
+				q_msg := createMessage("QUERY", getLANAddress(), text, peer_ip) // creating query message to send
+				q_msg.send(sRouter_addr)
+				fmt.Println("Sent to " + peer_ip)
 			}
 
 		}
 	} else {
+
+		// query srouter for peer ip
+		peer_ip_q_msg := createMessage("QUERY", getLANAddress(), "", sRouter_addr) // creating query message to send
+		peer_ip_q_msg.send(sRouter_addr)
+
+		//receiving reply
+		listener, err := net.Listen(TYPE, HOST+":"+PORT)
+		checkErr(err, "Error creating listener")
+
+		//Queue the listener's Close behavior to be fired once this function scope closes
+		defer listener.Close()
+
+		connection, err := listener.Accept()
+		checkErr(err, "Error accepting connection")
+
+		fmt.Println("NEW REQUEST FROM PEER ACCEPTED - HANDLING IN NEW THREAD")
+
+		dec := json.NewDecoder(connection)
+		msg := new(Message)
+
+		peer_ip := msg.Message //reply
+
+		connection, err := net.Dial(TYPE, msg.rec_IP)
+		if err != nil {
+			fmt.Println("Failed to create connection to the server. Is the server listening?")
+			os.Exit(1)
+		}
+
+		//Defer closing the connection to the remote listener until this function's scope closes
+		defer connection.Close()
+
 		for _, element := range message_split { // for each element of string array
 			element = strings.Trim(element, "\n") // trim end line char
 			if len(element) > 0 {
-				q_msg := createMessage("QUERY", getLANAddress(), element, sRouter_addr) // creating query messsage to send
-				q_msg.send(sRouter_addr)                                                               // sending
+
+				//send message to new ip
+				q_msg := createMessage("QUERY", getLANAddress(), text, peer_ip) // creating query message to send
+				q_msg.send(conn)
 
 			}
 		}
