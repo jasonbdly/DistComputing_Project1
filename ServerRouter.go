@@ -253,6 +253,7 @@ func handleConnection(connection net.Conn) {
 			selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
 			msg := p2pmessage.CreateMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
 			msg.Send_Async(sRouter_addr)
+			
 			break
 		case "RESPONSE":
 			fmt.Println(msg.MSG) // printing capitalized text
