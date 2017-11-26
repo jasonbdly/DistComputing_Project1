@@ -27,9 +27,9 @@ const (
 //message sent out to the server
 type Message struct {
 	Type   string //type of message ("IDENTIFY","RESPONSE","QUERY","IP_QUERY","ACK","DISCONNECT")
-	Src_IP string //Ip address of my computer
+	src_IP string //Ip address of my computer
 	MSG    string //message
-	Rec_IP string // IP address of message recipient
+	rec_IP string // IP address of message recipient
 }
 
 func main() {
@@ -39,24 +39,24 @@ func main() {
 }
 
 //creates a new message using the parameters passed in and returns it
-func createMessage(Type string, Src_IP string, MSG string, Rec_IP string) (msg *Message) {
+func createMessage(Type string, src_IP string, MSG string, rec_IP string) (msg *Message) {
 	msg = new(Message)
 	msg.Type = Type
-	msg.Src_IP = Src_IP
+	msg.src_IP = src_IP
 	msg.MSG = MSG
-	msg.Rec_IP = Rec_IP
+	msg.rec_IP = rec_IP
 	return
 }
 
 //sends message to a peer
-func (msg *Message) send(receiver string) {
+func (msg *Message) send(receiver string) (reply *Message) {
 	if testing {
-		log.Println("send(ip) to receiver")
-		log.Println(msg.Src_IP)
+		log.Println("send(ip) to " + receiver)
+		log.Println(msg.src_IP)
 	}
 
 	//connection, err := net.Dial(TYPE, serverRouterAddress)
-	connection, err := net.Dial(TYPE, msg.Rec_IP)
+	connection, err := net.Dial(TYPE, msg.rec_IP)
 	if err != nil {
 		fmt.Println("Failed to create connection to the server. Is the server listening?")
 		os.Exit(1)
@@ -65,22 +65,24 @@ func (msg *Message) send(receiver string) {
 	//Defer closing the connection to the remote listener until this function's scope closes
 	defer connection.Close()
 
-	msgDetails, _ := json.Marshal(msg)
-	fmt.Println("MESSAGE: " + string(msgDetails))
-
 	enc := json.NewEncoder(connection)
 	enc.Encode(msg)
 
+	// getting reply
+	var reply_msg Message
+	dec := json.NewDecoder(connection).Decode(&reply_msg)
+
+	return reply_msg
 
 }
 
 //sends message to a peer
-func (msg *Message) send_conn(conn net.Conn) {
+func (msg *Message) send(conn net.Conn) {
 	if testing {
 		log.Println("send(conn)")
 	}
 
-	enc := json.NewEncoder(conn)
+	enc := json.NewEncoder(connection)
 	enc.Encode(msg)
 }
 
@@ -171,7 +173,9 @@ func client() {
 
 				// query srouter for peer ip
 				peer_ip_q_msg := createMessage("QUERY", getLANAddress(), "", sRouter_addr) // creating query message to send
-				peer_ip_q_msg.send(sRouter_addr)
+
+				peer_ip := peer_ip_q_msg.send(sRouter_addr)
+				/*peer_ip_q_msg.send(sRouter_addr)
 
 				//receiving reply with peer ip
 				listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -183,12 +187,11 @@ func client() {
 				//Block until a connection is received from a remote client
 				connection, err := listener.Accept()
 				checkErr(err, "Error accepting connection while requesting peer IP")
-
+				
 				var msg Message
 				json.NewDecoder(connection).Decode(&msg)
-				//msg := new(Message)
 
-				peer_ip := msg.MSG //reply
+				peer_ip := msg.Message //reply*/
 
 				//send message to new ip
 				q_msg := createMessage("QUERY", getLANAddress(), text, peer_ip) // creating query message to send
@@ -207,21 +210,23 @@ func client() {
 		listener, err := net.Listen(TYPE, HOST+":"+PORT)
 		checkErr(err, "Error creating listener")
 
-		listen_connection, err := listener.Accept()
+		//Queue the listener's Close behavior to be fired once this function scope closes
+		//defer listener.Close()
+
+		connection, err := listener.Accept()
 		checkErr(err, "Error accepting connection")
 
 		fmt.Println("NEW REQUEST FROM PEER ACCEPTED - HANDLING IN NEW THREAD")
 
-		var msg Message
-		json.NewDecoder(listen_connection).Decode(&msg)
-		//msg := new(Message)
+		dec := json.NewDecoder(connection)
+		msg := new(Message)
 
-		listen_connection.Close()
+		peer_ip := msg.Message //reply
+
 		listener.Close()
+		connection.Close()
 
-		peer_ip := msg.MSG //reply
-
-		connection, err := net.Dial(TYPE, peer_ip)
+		connection, err := net.Dial(TYPE, msg.rec_IP)
 		if err != nil {
 			fmt.Println("Failed to create connection to the server. Is the server listening?")
 			os.Exit(1)
@@ -236,7 +241,8 @@ func client() {
 
 				//send message to new ip
 				q_msg := createMessage("QUERY", getLANAddress(), text, peer_ip) // creating query message to send
-				q_msg.send_conn(connection)
+				q_msg.send(conn)
+
 			}
 		}
 
@@ -291,13 +297,13 @@ func handleRequest(connection net.Conn) {
 			if len(msg.MSG) > 0 {
 				// message = strings.Trim(message, "\n") // should be trimmed already
 
-				fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
+				fmt.Println("READ FROM PEER " + msg.src_IP + ":" + msg.MSG)
 
 				//Uppercase the message
 				message := strings.ToUpper(msg.MSG)
 
 				//Write the uppercased message back to the remote connection
-				res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.Src_IP)
+				res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.src_IP)
 				res_msg.send(sRouter_addr)
 
 			}
