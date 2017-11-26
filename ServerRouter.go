@@ -1,14 +1,16 @@
 package main
 
 import (
-	//"bufio"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
+	"math/rand"
 	//"strings"
-	//"time"
+	"time"
+	"./p2pmessage"
 )
 
 const (
@@ -123,13 +125,30 @@ var metricsSignalChannel = make(chan bool, 1)
 
 //Tracks IP Addresses of all nodes
 var nodeRegistry []string
+var sRouter_addr string
 
 //Main thread logic
 func main() {
+	rand.Seed(time.Now().UnixNano() / int64(time.Millisecond))
+
 	//Initialize the client-server routing registry
 	//routingRegistry := []RoutingRegisterEntry{}
 
 	nodeRegistry = []string{}
+
+	//Print out a prompt to the client
+	fmt.Print("Other Server Router Address (leave empty for default): ")
+
+	reader := bufio.NewScanner(os.Stdin)
+
+	//Block until the enter key is pressed, then read any new content into <text>
+	reader.Scan()
+	serverRouterAddress := reader.Text()
+
+	if len(serverRouterAddress) == 0 {
+		serverRouterAddress = SERVER_ROUTER
+	}
+	sRouter_addr = serverRouterAddress
 
 	//Start concurrent session monitor
 	//go MetricThread(metricsChannel, metricsSignalChannel)
@@ -171,7 +190,7 @@ func handleConnection(connection net.Conn) {
 	//Wait for the initialization packet, which specifies whether the remote machine
 	//is a server or a client
 
-	var msg Message
+	var msg p2pmessage.Message
 	dec := json.NewDecoder(connection)
 	//msg := new(Message)
 
@@ -190,14 +209,17 @@ func handleConnection(connection net.Conn) {
 			//Add sender to list of registered nodes
 			nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
+			acknowledgementMessage := p2pmessage.CreateMessage("ACK", getLANAddress(), "", msg.Src_IP)
+			acknowledgementMessage.Send_Async("")
+
 			break
 		case "QUERY":
 			if len(msg.MSG) > 0 {
 				fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
 
 				// send hard coded srouter ip IP_QUERY
-				msg := createMessage("IP_QUERY", getLANAddress(), "", sRouter_addr)
-				msg.send(sRouter_addr)
+				msg := p2pmessage.CreateMessage("IP_QUERY", getLANAddress(), "", sRouter_addr)
+				msg.Send_Async(sRouter_addr)
 
 				//receiving reply with peer ip
 				/*listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -227,11 +249,10 @@ func handleConnection(connection net.Conn) {
 		case "IP_QUERY":
 			fmt.Println(msg.MSG) // printing capitalized text
 
-			//
-
-			string selected_peer_ip := //pick random peer
-			msg := createMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
-			msg.send(sRouter_addr)
+			//pick random peer
+			selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
+			msg := p2pmessage.CreateMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
+			msg.Send_Async(sRouter_addr)
 			break
 		case "RESPONSE":
 			fmt.Println(msg.MSG) // printing capitalized text
@@ -243,37 +264,4 @@ func handleConnection(connection net.Conn) {
 	}
 
 	fmt.Println("[SERVERROUTER] CLOSING CONNECTION THREAD TO TYPE: " + msg.MSG)
-}
-
-//message sent out to the server
-type Message struct {
-	Type   string //type of message ("IDENTIFY","RESPONSE","QUERY","ACK","DISCONNECT")
-	Src_IP string //Ip address of my computer
-	MSG    string //message
-	Rec_IP string // IP address of message recipient
-}
-
-//creates a new message using the parameters passed in and returns it
-func createMessage(Type string, Src_IP string, MSG string, Rec_IP string) (msg *Message) {
-	msg = new(Message)
-	msg.Type = Type
-	msg.Src_IP = Src_IP
-	msg.MSG = MSG
-	msg.Rec_IP = Rec_IP
-	return
-}
-
-//sends message to a peer
-func (msg *Message) send(receiver string) {
-	connection, err := net.Dial(TYPE, msg.Rec_IP)
-	if err != nil {
-		fmt.Println("Failed to create connection to the server. Is the server listening?")
-		os.Exit(1)
-	}
-
-	//Defer closing the connection to the remote listener until this function's scope closes
-	defer connection.Close()
-
-	enc := json.NewEncoder(connection)
-	enc.Encode(msg)
 }
