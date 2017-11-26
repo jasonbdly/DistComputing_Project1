@@ -1,13 +1,14 @@
 package main
 
 import (
-	"bufio"
+	//"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
-	"strings"
-	"time"
+	//"strings"
+	//"time"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	PORT        = "5556"
 	TYPE        = "tcp"
 	SERVER_PORT = "5557"
+	SERVER_ROUTER = ""
 )
 
 func checkErr(err error, message string) {
@@ -53,59 +55,6 @@ type RoutingRegisterEntry struct {
 type IncomingConnection struct {
 	Type       string
 	Connection *net.Conn
-}
-
-func connectionAssigner(incomingChannel chan IncomingConnection, assignedChannel chan<- string, routingRegistry *[]RoutingRegisterEntry) {
-	queuedClients := []IncomingConnection{}
-
-	for {
-		//Block until a new client connection request is received
-		newConnection := <-incomingChannel
-
-		fmt.Println("[ASSIGNER] NEW CONNECTION: " + newConnection.Type)
-
-		if newConnection.Type == "SERVER" {
-			remoteConnectionAddress := (*newConnection.Connection).RemoteAddr().String()
-			remoteAddressParts := strings.Split(remoteConnectionAddress, ":")
-			remoteAddressParts = remoteAddressParts[:len(remoteAddressParts)-1]
-
-			remoteAddressIP := strings.Join(remoteAddressParts, ":")
-
-			//Server
-			*routingRegistry = append(*routingRegistry, RoutingRegisterEntry{ServerAddr: remoteAddressIP + ":" + SERVER_PORT, NumClients: 0})
-
-			fmt.Println("[ASSIGNER] SEND CONNECTED SIGNAL TO SERVER")
-			(*newConnection.Connection).Write([]byte("CONNECTED\n"))
-			defer (*newConnection.Connection).Close()
-
-			metricsChannel <- Metric{Type: "SERVER_CONNECTIONS", Value: 1, OP: "TOTAL"}
-		} else {
-			//We'll need to wait until a server has connected before assigning any clients
-			if len(*routingRegistry) > 0 {
-				//Client
-				var bestServerEntry *RoutingRegisterEntry
-				for _, serverEntry := range *routingRegistry {
-					if bestServerEntry == nil || serverEntry.NumClients < bestServerEntry.NumClients {
-						bestServerEntry = &serverEntry
-					}
-				}
-
-				if len(queuedClients) > 0 {
-					//Remove that entry from the queued clients list
-					queuedClients = append(queuedClients[:1], queuedClients[2:]...)
-				}
-
-				bestServerEntry.NumClients++
-
-				metricsChannel <- Metric{Type: "CLIENT_CONNECTIONS[" + bestServerEntry.ServerAddr + "]", Value: 1, OP: "TOTAL"}
-
-				fmt.Println("[ASSIGNER] SERVER ASSIGNED TO CLIENT")
-				assignedChannel <- bestServerEntry.ServerAddr
-			} else {
-				queuedClients = append(queuedClients, newConnection)
-			}
-		}
-	}
 }
 
 type Metric struct {
@@ -172,16 +121,18 @@ var assignedChannel = make(chan string, 1)
 var metricsChannel = make(chan Metric, 1)
 var metricsSignalChannel = make(chan bool, 1)
 
+//Tracks IP Addresses of all nodes
+var nodeRegistry []string
+
 //Main thread logic
 func main() {
 	//Initialize the client-server routing registry
-	routingRegistry := []RoutingRegisterEntry{}
+	//routingRegistry := []RoutingRegisterEntry{}
 
-	//Start the server assigner thread
-	go connectionAssigner(newConnectionChannel, assignedChannel, &routingRegistry)
+	nodeRegistry = []string{}
 
 	//Start concurrent session monitor
-	go MetricThread(metricsChannel, metricsSignalChannel)
+	//go MetricThread(metricsChannel, metricsSignalChannel)
 
 	//Set up central listener
 	listener, err := net.Listen(TYPE, HOST+":"+PORT)
@@ -192,12 +143,12 @@ func main() {
 	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
 	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + getLANAddress())
 
-	go func() {
+	/*go func() {
 		for {
 			metricsSignalChannel <- true
 			time.Sleep(5 * time.Second)
 		}
-	}()
+	}()*/
 
 	for {
 		//Wait for a connection
@@ -213,78 +164,86 @@ func main() {
 	fmt.Println("[SERVERROUTER] SHUTTING DOWN")
 }
 
+
 func handleConnection(connection net.Conn) {
 	fmt.Println("[SERVERROUTER] WAITING FOR CONNECTION TYPE MESSAGE")
 
 	//Wait for the initialization packet, which specifies whether the remote machine
 	//is a server or a client
-	connectionReader := bufio.NewScanner(connection)
 
-	connectionReader.Scan()
-	firstMessage := connectionReader.Text()
+	var msg Message
+	dec := json.NewDecoder(connection)
+	//msg := new(Message)
 
-	firstMessage = strings.Trim(firstMessage, "\n")
+	for {
+		if err := dec.Decode(&msg); err != nil {
+			return
+		}
 
-	fmt.Println("[SERVERROUTER] RECEIVED CONNECTION TYPE MESSAGE: " + firstMessage)
+		msgDetails, _ := json.Marshal(msg)
+		fmt.Println("MESSAGE: " + string(msgDetails))
 
-	newConnectionChannel <- IncomingConnection{Type: firstMessage, Connection: &connection}
+		switch msg.Type {
+		case "IDENTIFY":
+			fmt.Println("[SERVERROUTER] RECEIVED IDENTIFY FROM NODE: " + msg.Src_IP)
 
-	//Only need to facilitate connection if the connector is a "client" type
-	//Otherwise, it must be a server, so we just keep track of it to set up routing
-	//between it and other clients.
-	if firstMessage == "CLIENT" {
-		defer connection.Close()
+			//Add sender to list of registered nodes
+			nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
-		fmt.Println("[SERVERROUTER] CLIENT TYPE DETECTED - STARTING HANDLER THREAD")
+			break
+		case "QUERY":
+			if len(msg.MSG) > 0 {
+				fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
 
-		assignedServerAddr := <-assignedChannel
+				//Uppercase the message
+				//message := strings.ToUpper(msg.MSG)
 
-		fmt.Println("[SERVERROUTER] CONNECTING CLIENT TO: " + assignedServerAddr)
-
-		serverConnection, err := net.Dial(TYPE, assignedServerAddr)
-		checkErr(err, "Failed to open proxy connection to server")
-
-		defer serverConnection.Close()
-
-		serverReader := bufio.NewScanner(serverConnection)
-
-		//Signal to the client that it has been successfully routed to a server
-		fmt.Println("[SERVERROUTER] NOTIFYING CLIENT OF CONNECTION TO SERVER")
-		connection.Write([]byte("CONNECTED\n"))
-
-		//Start the main proxy loop to facilitate communication
-		for {
-			connectionReader.Scan()
-			checkErr(connectionReader.Err(), "Failed to read from client")
-
-			message := connectionReader.Text()
-			message = strings.Trim(message, "\n")
-
-			fmt.Println("[SERVERROUTER] READ FROM CLIENT: " + message)
-
-			serverConnection.Write([]byte(message + "\n"))
-
-			fmt.Println("[SERVERROUTER] WROTE TO SERVER: " + message)
-
-			//Adding size of current message to list of sizes
-			metricsChannel <- Metric{Type: "MESSAGE_SIZE", Value: int64(len(message)), OP: "AVG"}
-
-			//Break this connection if the client sent a disconnect signal
-			if message == "EXIT" {
-				break
+				//Write the uppercased message back to the remote connection
+				//res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.Src_IP)
+				//res_msg.send(sRouter_addr)
 			}
-
-			serverReader.Scan()
-			serverMessage := serverReader.Text()
-
-			fmt.Println("[SERVERROUTER] READ FROM SERVER: " + serverMessage)
-
-			//Send the server's response back to the client
-			connection.Write([]byte(serverMessage + "\n"))
-
-			fmt.Println("[SERVERROUTER] WROTE TO CLIENT: " + serverMessage)
+			break
+		case "RESPONSE":
+			fmt.Println(msg.MSG) // printing capitalized text
+			break
+		case "ACK":
+			// do nothing
+			break
 		}
 	}
 
-	fmt.Println("[SERVERROUTER] CLOSING CONNECTION THREAD TO TYPE: " + firstMessage)
+	fmt.Println("[SERVERROUTER] CLOSING CONNECTION THREAD TO TYPE: " + msg.MSG)
+}
+
+//message sent out to the server
+type Message struct {
+	Type   string //type of message ("IDENTIFY","RESPONSE","QUERY","ACK","DISCONNECT")
+	Src_IP string //Ip address of my computer
+	MSG    string //message
+	Rec_IP string // IP address of message recipient
+}
+
+//creates a new message using the parameters passed in and returns it
+func createMessage(Type string, Src_IP string, MSG string, Rec_IP string) (msg *Message) {
+	msg = new(Message)
+	msg.Type = Type
+	msg.Src_IP = Src_IP
+	msg.MSG = MSG
+	msg.Rec_IP = Rec_IP
+	return
+}
+
+//sends message to a peer
+func (msg *Message) send(receiver string) {
+	connection, err := net.Dial(TYPE, msg.Rec_IP)
+	if err != nil {
+		fmt.Println("Failed to create connection to the server. Is the server listening?")
+		os.Exit(1)
+	}
+
+	//Defer closing the connection to the remote listener until this function's scope closes
+	defer connection.Close()
+
+	enc := json.NewEncoder(connection)
+	enc.Encode(msg)
 }
