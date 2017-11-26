@@ -185,7 +185,6 @@ func client() {
 				checkErr(err, "Error accepting connection while requesting peer IP")
 
 				var msg Message
-
 				json.NewDecoder(connection).Decode(&msg)
 				//msg := new(Message)
 
