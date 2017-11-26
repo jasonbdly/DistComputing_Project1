@@ -195,6 +195,27 @@ func handleConnection(connection net.Conn) {
 			if len(msg.MSG) > 0 {
 				fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
 
+				// send hard coded srouter ip IP_QUERY
+				msg := createMessage("IP_QUERY", getLANAddress(), "", sRouter_addr)
+				msg.send(sRouter_addr)
+
+				//receiving reply with peer ip
+				/*listener, err := net.Listen(TYPE, HOST+":"+PORT)
+				checkErr(err, "Error creating listener while requesting peer IP")
+
+				//Queue the listener's Close behavior to be fired once this function scope closes
+				defer listener.Close()
+
+				//Block until a connection is received from a remote client
+				connection, err := listener.Accept()
+				checkErr(err, "Error accepting connection while requesting peer IP")
+
+				dec := json.NewDecoder(connection)
+				msg := new(Message)
+
+				peer_ip := msg.Message //reply
+
+*/
 				//Uppercase the message
 				//message := strings.ToUpper(msg.MSG)
 
@@ -202,6 +223,15 @@ func handleConnection(connection net.Conn) {
 				//res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.Src_IP)
 				//res_msg.send(sRouter_addr)
 			}
+			break
+		case "IP_QUERY":
+			fmt.Println(msg.MSG) // printing capitalized text
+
+			//
+
+			string selected_peer_ip := //pick random peer
+			msg := createMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
+			msg.send(sRouter_addr)
 			break
 		case "RESPONSE":
 			fmt.Println(msg.MSG) // printing capitalized text
