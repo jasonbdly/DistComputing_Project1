@@ -9,29 +9,66 @@ import (
 	"net"
 	"os"
 	"strings"
+	"strconv"
 	"time"
 	p2p "./p2pmessage"
 )
 
-var HOST = ""
+var host string = ""
 var sRouter_addr string = ""
+var testFile string = ""
 var transmissionTimes = make([]time.Duration, 0) //List(slice) of transmission times
-
-var testing bool = true
+var initialWaitTime int = 2000
 
 const (
+	HOST = ""
 	TYPE          = "tcp"
 	SERVER_ROUTER = "localhost:5556"
 )
 
+
+//Command line arguments: [HOST, LOWER_PORT, UPPER_PORT, SERVER_ROUTER_ADDRESS, TEST_FILE, WaitTime]
 func main() {
-	p2p.ListenerPort = p2p.FindOpenPort(HOST, 30000, 60000)
+	var lowerPort int
+	var upperPort int
+
+	if len(os.Args) == 7 {
+		//Parse input arguments
+		host = os.Args[1]
+		lowerPort, _ = strconv.Atoi(os.Args[2])
+		upperPort, _ = strconv.Atoi(os.Args[3])
+		sRouter_addr = os.Args[4]
+		testFile = os.Args[5]
+		initialWaitTime, _ = strconv.Atoi(os.Args[6])
+		fmt.Println("[P2P]: " + host + ", " + os.Args[2] + ", " + os.Args[3] + ", " + sRouter_addr + ", " + testFile)
+	} else {
+		fmt.Println("No CMD args detected. Using default settings.")
+		host = HOST
+		lowerPort = 30000
+		upperPort = 60000
+		
+		//Print out a prompt to the client
+		fmt.Print("Server Router Address (leave empty for default): ")
+
+		reader := bufio.NewScanner(os.Stdin)
+
+		//Block until the enter key is pressed, then read any new content into <text>
+		reader.Scan()
+		sRouter_addr = reader.Text()
+
+		if len(sRouter_addr) == 0 {
+			sRouter_addr = SERVER_ROUTER
+		}
+	}
+
+	p2p.ListenerPort = p2p.FindOpenPort(HOST, lowerPort, upperPort)
 
 	go server()      // Starting server thread
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Duration(initialWaitTime) * time.Millisecond)
 
-	identifyMyself() // IDing self to server router to become available to peers
+	// IDing self to server router to become available to peers
+	p2p.Send(p2p.IDENTIFY, "", sRouter_addr)
 	
 	client()      // Starting client thread
 }
@@ -52,36 +89,22 @@ func printTransmissionMetrics() {
 	return
 }
 
-func identifyMyself() {
-	//Print out a prompt to the client
-	fmt.Print("Server Router Address (leave empty for default): ")
-
-	reader := bufio.NewScanner(os.Stdin)
-
-	//Block until the enter key is pressed, then read any new content into <text>
-	reader.Scan()
-	sRouter_addr = reader.Text()
-
-	if len(sRouter_addr) == 0 {
-		sRouter_addr = SERVER_ROUTER
-	}
-
-	p2p.Send(p2p.IDENTIFY, "", sRouter_addr)
-}
-
 func client() {
 	//Create a buffer to interface with the os.Stdin InputStream
 	reader := bufio.NewScanner(os.Stdin)
 
 	var text string = ""
 	var useTerminal bool = true
-	fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
-	reader.Scan()
-	path := reader.Text()
+
+	if testFile == "" {
+		fmt.Print("Enter path to file you would like to transmit (leave empty to enter custom text): ")
+		reader.Scan()
+		testFile = reader.Text()
+	}
 
 	message_split := []string{}
-	if len(path) != 0 {
-		text_array, _ := ioutil.ReadFile(path)    // getting file
+	if len(testFile) != 0 {
+		text_array, _ := ioutil.ReadFile(testFile)    // getting file
 		text = string(text_array)                 // setting to string
 		message_split = strings.Split(text, "\n") // splitting string at new line chars
 		useTerminal = false
@@ -114,14 +137,6 @@ func client() {
 			}
 		}
 	} else {
-		/*connection, err := net.Dial(TYPE, peer_ip_res_msg.MSG)
-		if err != nil {
-			fmt.Println("Failed to create connection to the server. Is the server listening?")
-			os.Exit(1)
-		}
-
-		//Defer closing the connection to the remote listener until this function's scope closes
-		defer connection.Close()*/
 
 		for _, element := range message_split { // for each element of string array
 			element = strings.Trim(element, "\n") // trim end line char
@@ -130,10 +145,6 @@ func client() {
 				//Send data from user to peer node, block until the response is received, and print the response
 				dataResponseMessage := p2p.Send(p2p.DATA, element, peerNode)
 				fmt.Println("RESPONSE: " + dataResponseMessage.MSG)
-
-				//send message to new ip
-				//q_msg := p2p.CreateMessage("QUERY", text, peer_ip_res_msg.MSG) // creating query message to send
-				//q_msg.Send_Conn(connection)
 			}
 		}
 
@@ -157,7 +168,7 @@ func server() {
 		connection, err := listener.Accept()
 		checkErr(err, "Error accepting connection")
 
-		fmt.Println("NEW REQUEST FROM PEER ACCEPTED - HANDLING IN NEW THREAD")
+		//fmt.Println("NEW REQUEST FROM PEER ACCEPTED - HANDLING IN NEW THREAD")
 
 		//Run the "handleRequest" function for this connection in a separate thread
 		go handleRequest(connection)
@@ -185,8 +196,6 @@ func handleRequest(connection net.Conn) {
 		switch msg.Type {
 			case p2p.DATA:
 				if len(msg.MSG) > 0 {
-					fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
-
 					//Uppercase the message
 					message := strings.ToUpper(msg.MSG)
 
@@ -195,11 +204,7 @@ func handleRequest(connection net.Conn) {
 				}
 				break
 			case p2p.ACKNOWLEDGE:
-				fmt.Println("RECEIVED ACK FROM SERVER")
 				break LISTENER
-			case p2p.DISCONNECT:
-				
-				break
 		}
 	}
 }

@@ -27,16 +27,6 @@ func checkErr(err error, message string) {
 	}
 }
 
-type RoutingRegisterEntry struct {
-	ServerAddr string
-	NumClients int
-}
-
-type IncomingConnection struct {
-	Type       string
-	Connection *net.Conn
-}
-
 type Metric struct {
 	Type  string
 	Value int64
@@ -88,64 +78,66 @@ func MetricThread(metricChannel <-chan Metric, calcMetricsSignal <-chan bool) {
 	}
 }
 
-//Set up channel for synchronized communication with the
-//connection mapper channel. A buffer size of 1 is used to
-//ensure connection mapping requests are handled in order.
-//Golang channels block sends when the buffer is full, and block
-//receives when the buffer is empty. Channels are the preferred method
-//of cross-thread communication in place of manual synchronization with
-//more standard data structures.
-var newConnectionChannel = make(chan IncomingConnection, 1)
-var assignedChannel = make(chan string, 1)
-
 var metricsChannel = make(chan Metric, 1)
 var metricsSignalChannel = make(chan bool, 1)
 
 //Tracks IP Addresses of all nodes
 var nodeRegistry []string
+
+var host string = ""
+var serverPort string = ""
 var sRouter_addr string
 
-//Main thread logic
+//Command line arguments: [HOST, PORT, OTHER_SERVER_ROUTER_ADDRESS]
 func main() {
+	if len(os.Args) == 4 {
+		//Parse input arguments
+		host = os.Args[1]
+		serverPort = os.Args[2]
+		sRouter_addr = os.Args[3]
+	} else {
+		fmt.Println("No CMD args detected. Using default settings.")
+		host = HOST
+
+		fmt.Print("Enter port to use (leave empty for default - WILL NOT WORK WITH MULTIPLE ROUTERS): ")
+		reader := bufio.NewScanner(os.Stdin)
+
+		//Block until the enter key is pressed, then read any new content into <text>
+		reader.Scan()
+		serverPort := reader.Text()
+		if len(serverPort) == 0 {
+			serverPort = PORT
+		}
+
+		//Print out a prompt to the client
+		fmt.Print("Other Server Router Address (leave empty for default): ")
+
+		//Block until the enter key is pressed, then read any new content into <text>
+		reader.Scan()
+		sRouter_addr := reader.Text()
+
+		if len(sRouter_addr) == 0 {
+			sRouter_addr = SERVER_ROUTER
+		}
+	}
+
 	rand.Seed(time.Now().UnixNano() / int64(time.Millisecond))
 
 	//Initialize the client-server routing registry
 	nodeRegistry = []string{}
 
-	fmt.Print("Enter port to use (leave empty for default - WILL NOT WORK WITH MULTIPLE ROUTERS): ")
-
-	reader := bufio.NewScanner(os.Stdin)
-
-	//Block until the enter key is pressed, then read any new content into <text>
-	reader.Scan()
-	serverPort := reader.Text()
-	if len(serverPort) == 0 {
-		serverPort = PORT
-	}
 	p2p.ListenerPort = serverPort
-
-	//Print out a prompt to the client
-	fmt.Print("Other Server Router Address (leave empty for default): ")
-
-	//Block until the enter key is pressed, then read any new content into <text>
-	reader.Scan()
-	serverRouterAddress := reader.Text()
-
-	if len(serverRouterAddress) == 0 {
-		serverRouterAddress = SERVER_ROUTER
-	}
-	sRouter_addr = serverRouterAddress
 
 	//Start concurrent session monitor
 	//go MetricThread(metricsChannel, metricsSignalChannel)
 
 	//Set up central listener
-	listener, err := net.Listen(TYPE, HOST+":"+serverPort)
+	listener, err := net.Listen(TYPE, host+":"+serverPort)
 	checkErr(err, "Failed to create listener.")
 
 	defer listener.Close()
 
-	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + serverPort)
+	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + host + ":" + serverPort)
 	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + p2p.GetLANAddress())
 
 	/*go func() {
@@ -199,8 +191,6 @@ func handleConnection(connection net.Conn) {
 				nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
 				//Send acknowledgement packet back to node
-				//acknowledgementMessage := p2p.CreateMessage(p2p.ACKNOWLEDGE, "", msg.Src_IP)
-				//acknowledgementMessage.Send()
 				msg.Reply(p2p.ACKNOWLEDGE, "", msg.Src_IP)
 
 				fmt.Println("SENT ACKNOWLEDGE")
