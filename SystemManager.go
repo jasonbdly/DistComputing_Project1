@@ -1,19 +1,35 @@
 package main
 
 import (
-	"fmt"
 	"bufio"
+	"fmt"
 	"os"
-	"strconv"
 	"os/exec"
+	"runtime"
+	"strconv"
 )
 
 const (
-	startPort = 30000
-	testFile = "testfile.txt"
+	startPort           = 30000
+	testFile            = "testfile.txt"
+	serverRouterExe_W   = "ServerRouter.exe"
+	serverRouterExe_NIX = "./ServerRouter"
+	p2pExe_W            = "P2P.exe"
+	p2pExe_NIX          = "./P2P"
 )
 
 func main() {
+	var serverRouterExe string
+	var p2pExe string
+
+	if runtime.GOOS == "windows" {
+		serverRouterExe = serverRouterExe_W
+		p2pExe = p2pExe_W
+	} else {
+		serverRouterExe = serverRouterExe_NIX
+		p2pExe = p2pExe_NIX
+	}
+
 	fmt.Println("How many nodes should be created?")
 	inputReader := bufio.NewScanner(os.Stdin)
 	inputReader.Scan()
@@ -33,29 +49,29 @@ func main() {
 
 	fmt.Println("Starting server routers")
 
-	serverRouter1 := exec.Command("ServerRouter.exe", "", "6000", serverRouters[0])
-	//serverRouter1.Stdout = os.Stdout
+	serverRouter1 := exec.Command(serverRouterExe, "", "6000", serverRouters[0])
+	serverRouter1.Stdout = os.Stdout
 	serverRouter1.Stderr = os.Stderr
 	err = serverRouter1.Start()
 	if err != nil {
-		fmt.Println("Failed to start server router 1")
+		fmt.Println("Failed to start server router 1: " + err.Error())
 		return
 	}
 
-	serverRouter2 := exec.Command("ServerRouter.exe", "", "6001", serverRouters[1])
-	//serverRouter2.Stdout = os.Stdout
+	serverRouter2 := exec.Command(serverRouterExe, "", "6001", serverRouters[1])
+	serverRouter2.Stdout = os.Stdout
 	serverRouter2.Stderr = os.Stderr
 	err = serverRouter2.Start()
 	if err != nil {
-		fmt.Println("Failed to start server router 2")
+		fmt.Println("Failed to start server router 2: " + err.Error())
 		return
 	}
 
 	p2pNodes := []*exec.Cmd{}
 	for i := 0; i < numNodes; i++ {
 		fmt.Println("Starting P2P Node: " + strconv.Itoa(i))
-		p2pNode := exec.Command("P2P.exe", "", strconv.Itoa(startPort), strconv.Itoa(startPort + numNodes), serverRouters[i % len(serverRouters)], testFile, strconv.Itoa(10 * numNodes))
-		//p2pNode.Stdout = os.Stdout
+		p2pNode := exec.Command(p2pExe, "", strconv.Itoa(startPort), strconv.Itoa(startPort+numNodes), serverRouters[i%len(serverRouters)], testFile, strconv.Itoa(20*numNodes))
+		p2pNode.Stdout = os.Stdout
 		p2pNode.Stderr = os.Stderr
 		err = p2pNode.Start()
 		if err != nil {
@@ -70,7 +86,7 @@ func main() {
 	}
 
 	fmt.Println("All P2P nodes finished. Shutting down server routers.")
-	
+
 	err = serverRouter1.Process.Signal(os.Kill)
 	if err != nil {
 		fmt.Println("Failed to stop server router 1: " + err.Error())
