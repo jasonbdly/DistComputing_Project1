@@ -17,7 +17,6 @@ const (
 	HOST        = ""
 	PORT        = "5556"
 	TYPE        = "tcp"
-	SERVER_PORT = "5557"
 	SERVER_ROUTER = ""
 )
 
@@ -108,19 +107,25 @@ var sRouter_addr string
 
 //Main thread logic
 func main() {
-	p2p.ListenerPort = PORT
-
 	rand.Seed(time.Now().UnixNano() / int64(time.Millisecond))
 
 	//Initialize the client-server routing registry
-	//routingRegistry := []RoutingRegisterEntry{}
-
 	nodeRegistry = []string{}
+
+	fmt.Print("Enter port to use (leave empty for default - WILL NOT WORK WITH MULTIPLE ROUTERS): ")
+
+	reader := bufio.NewScanner(os.Stdin)
+
+	//Block until the enter key is pressed, then read any new content into <text>
+	reader.Scan()
+	serverPort := reader.Text()
+	if len(serverPort) == 0 {
+		serverPort = PORT
+	}
+	p2p.ListenerPort = serverPort
 
 	//Print out a prompt to the client
 	fmt.Print("Other Server Router Address (leave empty for default): ")
-
-	reader := bufio.NewScanner(os.Stdin)
 
 	//Block until the enter key is pressed, then read any new content into <text>
 	reader.Scan()
@@ -135,12 +140,12 @@ func main() {
 	//go MetricThread(metricsChannel, metricsSignalChannel)
 
 	//Set up central listener
-	listener, err := net.Listen(TYPE, HOST+":"+PORT)
+	listener, err := net.Listen(TYPE, HOST+":"+serverPort)
 	checkErr(err, "Failed to create listener.")
 
 	defer listener.Close()
 
-	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
+	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + serverPort)
 	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + p2p.GetLANAddress())
 
 	/*go func() {
@@ -164,60 +169,59 @@ func main() {
 	fmt.Println("[SERVERROUTER] SHUTTING DOWN")
 }
 
-var numErrors int = 0
 func handleConnection(connection net.Conn) {
-	fmt.Println("[SERVERROUTER] WAITING FOR CONNECTION TYPE MESSAGE")
-
 	//Wait for the initialization packet, which specifies whether the remote machine
 	//is a server or a client
 
 	defer connection.Close()
 
+	if sRouter_addr == "" {
+		fmt.Println("No other server routers found. Skipping this connection.")
+		return
+	}
+
 	var msg p2p.Message
 	dec := json.NewDecoder(connection)
-	//msg := new(Message)
-
+	
 	for {
 		if err := dec.Decode(&msg); err != nil {
-			fmt.Println("[SERVERROUTER] ERROR - Failed to parse packet - Skipping")
-			numErrors++
-
-			if numErrors >= 5 {
-				fmt.Println("[SERVERROUTER] TOO MANY ERRORS. CLOSING SERVER ROUTER")
-				break
-			}
-
+			p2p.TrackEOF()
 			continue
 		}
-
-		numErrors = 0
+		
+		msg.Conn = connection
 
 		switch msg.Type {
 			case p2p.IDENTIFY:
-				fmt.Println("[SERVERROUTER] RECEIVED IDENTIFY FROM NODE: " + msg.Src_IP)
+				fmt.Println("[SERVERROUTER] IDENTIFY: " + msg.Src_IP)
 
 				//Add sender to list of registered nodes
 				nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
 				//Send acknowledgement packet back to node
-				acknowledgementMessage := p2p.CreateMessage(p2p.ACKNOWLEDGE, "", msg.Src_IP)
-				acknowledgementMessage.Send_Async()
+				//acknowledgementMessage := p2p.CreateMessage(p2p.ACKNOWLEDGE, "", msg.Src_IP)
+				//acknowledgementMessage.Send()
+				msg.Reply(p2p.ACKNOWLEDGE, "", msg.Src_IP)
+
+				fmt.Println("SENT ACKNOWLEDGE")
 
 				break
 			case p2p.FIND_PEER:
+				fmt.Println("[SERVERROUTER] FIND_PEER: " + msg.Src_IP)
+
 				// Send request to other server router to pick a node for the p2p connection
-				msg := p2p.CreateMessage(p2p.PICK_NODE, "", sRouter_addr)
-				findNodeResponse := msg.Send()
+				findNodeResponse := p2p.Send(p2p.PICK_NODE, "", sRouter_addr)
 
 				// Send the IP of the picked node to the peer that originally requested a connection
-				peerResponseMessage := p2p.CreateMessage(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
-				peerResponseMessage.Send_Async()
+				msg.Reply(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
+
 				break
 			case p2p.PICK_NODE:
+				fmt.Println("[SERVERROUTER] PICK_NODE: " + msg.Src_IP)
+
 				//pick random peer
 				selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
-				msg := p2p.CreateMessage(p2p.PICK_NODE_RESPONSE, selected_peer_ip, msg.Src_IP)
-				msg.Send_Async()
+				msg.Reply(p2p.PICK_NODE_RESPONSE, selected_peer_ip, msg.Src_IP)
 
 				break
 		}
