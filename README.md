@@ -19,8 +19,11 @@ Install Go (Golang)
 Run the System Manager
 
 1. Ensure dependant executables have been built for your platform
+
 ```go build ServerRouter.go```
+
 ```go build P2P.go```
 
 2. Run the system manager
+
 ```go run SystemManager.go```
