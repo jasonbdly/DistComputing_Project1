@@ -16,7 +16,7 @@ Install Go (Golang)
 3. Once both programs have connected, text can be sent to the Server from the Client and back.
 
 
-Run the System Manager
+Run the System Manager to Demo the Code
 
 1. Ensure dependant executables have been built for your platform
 
