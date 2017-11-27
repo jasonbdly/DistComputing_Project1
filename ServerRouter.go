@@ -10,7 +10,7 @@ import (
 	"math/rand"
 	//"strings"
 	"time"
-	"./p2pmessage"
+	p2p "./p2pmessage"
 )
 
 const (
@@ -26,27 +26,6 @@ func checkErr(err error, message string) {
 		fmt.Println(message, err.Error())
 		os.Exit(1)
 	}
-}
-
-func getLANAddress() string {
-	addrs, err := net.InterfaceAddrs()
-
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	for _, address := range addrs {
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.To4().String() + ":" + PORT
-			}
-		}
-	}
-
-	fmt.Println("Failed to retrieve LAN address")
-	os.Exit(1)
-	return "localhost" + ":" + PORT
 }
 
 type RoutingRegisterEntry struct {
@@ -129,6 +108,8 @@ var sRouter_addr string
 
 //Main thread logic
 func main() {
+	p2p.ListenerPort = PORT
+
 	rand.Seed(time.Now().UnixNano() / int64(time.Millisecond))
 
 	//Initialize the client-server routing registry
@@ -160,7 +141,7 @@ func main() {
 	defer listener.Close()
 
 	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + HOST + ":" + PORT)
-	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + getLANAddress())
+	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + p2p.GetLANAddress())
 
 	/*go func() {
 		for {
@@ -183,84 +164,62 @@ func main() {
 	fmt.Println("[SERVERROUTER] SHUTTING DOWN")
 }
 
-
+var numErrors int = 0
 func handleConnection(connection net.Conn) {
 	fmt.Println("[SERVERROUTER] WAITING FOR CONNECTION TYPE MESSAGE")
 
 	//Wait for the initialization packet, which specifies whether the remote machine
 	//is a server or a client
 
-	var msg p2pmessage.Message
+	defer connection.Close()
+
+	var msg p2p.Message
 	dec := json.NewDecoder(connection)
 	//msg := new(Message)
 
 	for {
 		if err := dec.Decode(&msg); err != nil {
-			return
+			fmt.Println("[SERVERROUTER] ERROR - Failed to parse packet - Skipping")
+			numErrors++
+
+			if numErrors >= 5 {
+				fmt.Println("[SERVERROUTER] TOO MANY ERRORS. CLOSING SERVER ROUTER")
+				break
+			}
+
+			continue
 		}
 
-		msgDetails, _ := json.Marshal(msg)
-		fmt.Println("MESSAGE: " + string(msgDetails))
+		numErrors = 0
 
 		switch msg.Type {
-		case "IDENTIFY":
-			fmt.Println("[SERVERROUTER] RECEIVED IDENTIFY FROM NODE: " + msg.Src_IP)
+			case p2p.IDENTIFY:
+				fmt.Println("[SERVERROUTER] RECEIVED IDENTIFY FROM NODE: " + msg.Src_IP)
 
-			//Add sender to list of registered nodes
-			nodeRegistry = append(nodeRegistry, msg.Src_IP)
+				//Add sender to list of registered nodes
+				nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
-			acknowledgementMessage := p2pmessage.CreateMessage("ACK", getLANAddress(), "", msg.Src_IP)
-			acknowledgementMessage.Send_Async("")
+				//Send acknowledgement packet back to node
+				acknowledgementMessage := p2p.CreateMessage(p2p.ACKNOWLEDGE, "", msg.Src_IP)
+				acknowledgementMessage.Send_Async()
 
-			break
-		case "QUERY":
-			if len(msg.MSG) > 0 {
-				fmt.Println("READ FROM PEER " + msg.Src_IP + ":" + msg.MSG)
+				break
+			case p2p.FIND_PEER:
+				// Send request to other server router to pick a node for the p2p connection
+				msg := p2p.CreateMessage(p2p.PICK_NODE, "", sRouter_addr)
+				findNodeResponse := msg.Send()
 
-				// send hard coded srouter ip IP_QUERY
-				msg := p2pmessage.CreateMessage("IP_QUERY", getLANAddress(), "", sRouter_addr)
-				msg.Send_Async(sRouter_addr)
+				// Send the IP of the picked node to the peer that originally requested a connection
+				peerResponseMessage := p2p.CreateMessage(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
+				peerResponseMessage.Send_Async()
+				break
+			case p2p.PICK_NODE:
+				//pick random peer
+				selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
+				msg := p2p.CreateMessage(p2p.PICK_NODE_RESPONSE, selected_peer_ip, msg.Src_IP)
+				msg.Send_Async()
 
-				//receiving reply with peer ip
-				/*listener, err := net.Listen(TYPE, HOST+":"+PORT)
-				checkErr(err, "Error creating listener while requesting peer IP")
-
-				//Queue the listener's Close behavior to be fired once this function scope closes
-				defer listener.Close()
-
-				//Block until a connection is received from a remote client
-				connection, err := listener.Accept()
-				checkErr(err, "Error accepting connection while requesting peer IP")
-
-				dec := json.NewDecoder(connection)
-				msg := new(Message)
-
-				peer_ip := msg.Message //reply
-
-*/
-				//Uppercase the message
-				//message := strings.ToUpper(msg.MSG)
-
-				//Write the uppercased message back to the remote connection
-				//res_msg := createMessage("RESPONSE", getLANAddress(), message, msg.Src_IP)
-				//res_msg.send(sRouter_addr)
-			}
-			break
-		case "IP_QUERY":
-			fmt.Println(msg.MSG) // printing capitalized text
-
-			//pick random peer
-			selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
-			msg := p2pmessage.CreateMessage("RESPONSE", getLANAddress(), selected_peer_ip, sRouter_addr)
-			msg.Send_Async(sRouter_addr)
-			 
-			break
-		case "RESPONSE":
-			fmt.Println(msg.MSG) // printing capitalized text
-			break
-		case "ACK":
-			// do nothing
-			break
+				break
 		}
 	}
 
