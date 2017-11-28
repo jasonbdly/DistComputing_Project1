@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"math/rand"
-	//"strings"
 	"time"
 	p2p "./p2pmessage"
 )
@@ -104,7 +103,7 @@ func main() {
 
 		//Block until the enter key is pressed, then read any new content into <text>
 		reader.Scan()
-		serverPort := reader.Text()
+		serverPort = reader.Text()
 		if len(serverPort) == 0 {
 			serverPort = PORT
 		}
@@ -114,7 +113,7 @@ func main() {
 
 		//Block until the enter key is pressed, then read any new content into <text>
 		reader.Scan()
-		sRouter_addr := reader.Text()
+		sRouter_addr = reader.Text()
 
 		if len(sRouter_addr) == 0 {
 			sRouter_addr = SERVER_ROUTER
@@ -132,13 +131,12 @@ func main() {
 	//go MetricThread(metricsChannel, metricsSignalChannel)
 
 	//Set up central listener
-	listener, err := net.Listen(TYPE, host+":"+serverPort)
+	listener, err := net.Listen(TYPE, host+":"+p2p.ListenerPort)
 	checkErr(err, "Failed to create listener.")
 
 	defer listener.Close()
 
-	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + host + ":" + serverPort)
-	fmt.Println("[SERVERROUTER] LAN ADDRESS: " + p2p.GetLANAddress())
+	fmt.Println("[SERVERROUTER] LISTENING ON " + TYPE + "://" + host + ":" + p2p.ListenerPort)
 
 	/*go func() {
 		for {
@@ -151,8 +149,6 @@ func main() {
 		//Wait for a connection
 		connection, err := listener.Accept()
 		checkErr(err, "Error accepting connection.")
-
-		fmt.Println("[SERVERROUTER] NEW CONNECTION ACCEPTED - HANDLING IN NEW THREAD")
 
 		//Handle the connection in a separate thread
 		go handleConnection(connection)
@@ -185,7 +181,7 @@ func handleConnection(connection net.Conn) {
 
 		switch msg.Type {
 			case p2p.IDENTIFY:
-				fmt.Println("[SERVERROUTER] IDENTIFY: " + msg.Src_IP)
+				fmt.Println("[SERVERROUTER] IDENTIFY FROM: " + msg.Src_IP)
 
 				//Add sender to list of registered nodes
 				nodeRegistry = append(nodeRegistry, msg.Src_IP)
@@ -193,21 +189,20 @@ func handleConnection(connection net.Conn) {
 				//Send acknowledgement packet back to node
 				msg.Reply(p2p.ACKNOWLEDGE, "", msg.Src_IP)
 
-				fmt.Println("SENT ACKNOWLEDGE")
-
 				break
 			case p2p.FIND_PEER:
-				fmt.Println("[SERVERROUTER] FIND_PEER: " + msg.Src_IP)
+				fmt.Println("[SERVERROUTER] FIND_PEER FROM: " + msg.Src_IP)
 
 				// Send request to other server router to pick a node for the p2p connection
 				findNodeResponse := p2p.Send(p2p.PICK_NODE, "", sRouter_addr)
+				findNodeResponse.Conn.Close()
 
 				// Send the IP of the picked node to the peer that originally requested a connection
 				msg.Reply(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
 
 				break
 			case p2p.PICK_NODE:
-				fmt.Println("[SERVERROUTER] PICK_NODE: " + msg.Src_IP)
+				fmt.Println("[SERVERROUTER] PICK_NODE FROM: " + msg.Src_IP)
 
 				//pick random peer
 				selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]

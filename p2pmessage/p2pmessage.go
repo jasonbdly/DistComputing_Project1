@@ -4,17 +4,18 @@ import (
 	"encoding/json"
 	"strconv"
 	"fmt"
-	"log"
 	"net"
 	"os"
+	"bufio"
+	"runtime/debug"
 	"math/rand"
 	"time"
 )
 
 type MessageType int
 const (
-	IDENTIFY MessageType = iota
-	ACKNOWLEDGE
+	ACKNOWLEDGE MessageType = iota
+	IDENTIFY
 	DISCONNECT
 	FIND_PEER
 	FIND_PEER_RESPONSE
@@ -51,6 +52,8 @@ func (t MessageType) String() string {
 const (
 	ACCEPTABLE_EOFS = 5
 	EOF_WAIT_TIME = time.Second * 2
+	MAX_CONN_ATTEMPTS = 5
+	MAX_PEER_IDLE_TIME = time.Second * 1
 )
 
 var numEOFs int = 0
@@ -64,25 +67,30 @@ func TrackEOF() {
 
 var ListenerPort string = ""
 
+var lanAddress string
 func GetLANAddress() string {
-	addrs, err := net.InterfaceAddrs()
+	if len(lanAddress) == 0 {
+		addrs, err := net.InterfaceAddrs()
 
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 
-	for _, address := range addrs {
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.To4().String() + ":" + ListenerPort
+		for _, address := range addrs {
+			if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					lanAddress = ipnet.IP.To4().String() + ":" + ListenerPort
+					break
+				}
 			}
 		}
-	}
 
-	fmt.Println("Failed to retrieve LAN address")
-	os.Exit(1)
-	return "localhost" + ":" + ListenerPort
+		if len(lanAddress) == 0 {
+			lanAddress = "localhost" + ":" + ListenerPort
+		}
+	}
+	return lanAddress
 }
 
 func FindOpenPort(host string, startRange int, endRange int) string {
@@ -119,37 +127,42 @@ func createMessage(Type MessageType, MSG string, Rec_IP string) (msg *Message) {
 	return msg
 }
 
-func Send_Async(Type MessageType, MSG string, Rec_IP string) {
-	log.Println("[SEND ASYNC]: " + Type.String() + ", " + Rec_IP)
+func connectToTCP(address string) net.Conn {
+	var conn net.Conn
+	var err error
 
-	connection, err := net.Dial("tcp", Rec_IP)
-	if err != nil {
-		fmt.Println("Failed to create connection to the server. Is the server listening?")
+	fmt.Println("(" + GetLANAddress() + ") Attempting connnection to: (" + address + ")")
+
+	connectionAttempts := 0
+	for connectionAttempts < MAX_CONN_ATTEMPTS && conn == nil {
+		err = nil
+		conn, err = net.Dial("tcp", address)
+		if err != nil {
+			fmt.Println("(" + GetLANAddress() + ") Failed to connect to (" + address + ") Trying again")
+			connectionAttempts++
+		}
+	}
+
+	if conn == nil {
+		fmt.Println("(" + GetLANAddress() + ") Failed to make a connection to (" + address + ")\n" + err.Error() + "\n" + string(debug.Stack()))
 		os.Exit(1)
 	}
 
-	//Defer closing the connection to the remote listener until this function's scope closes
-	defer connection.Close()
+	fmt.Println("(" + GetLANAddress() + ") SUCCESSFUL connection to: " + address)
 
-	enc := json.NewEncoder(connection)
-	enc.Encode(createMessage(Type, MSG, Rec_IP))
+	return conn
 }
 
 //sends message to a peer
 func Send(Type MessageType, MSG string, Rec_IP string) Message {
-	log.Println("[SEND]: " + Type.String() + ", " + Rec_IP)
+	fmt.Println("[SEND]: " + Type.String() + ", " + Rec_IP)
 
-	connection, err := net.Dial("tcp", Rec_IP)
-	if err != nil {
-		fmt.Println("Failed to create connection to the server. Is the server listening?")
-		os.Exit(1)
-	}
+	msg := createMessage(Type, MSG, Rec_IP)
 
-	//Defer closing the connection to the remote listener until this function's scope closes
-	//defer connection.Close()
+	connection := connectToTCP(Rec_IP)
 
 	enc := json.NewEncoder(connection)
-	enc.Encode(createMessage(Type, MSG, Rec_IP))
+	enc.Encode(msg)
 
 	// getting reply
 	var reply_msg Message
@@ -160,8 +173,51 @@ func Send(Type MessageType, MSG string, Rec_IP string) Message {
 	return reply_msg
 }
 
+func Send_Scanner(Type MessageType, MSG *bufio.Scanner, Rec_IP string) <-chan Message {
+	outputChannel := make(chan Message, 1)
+
+	connection := connectToTCP(Rec_IP)
+
+	dataEncoder := json.NewEncoder(connection)
+	dataDecoder := json.NewDecoder(connection)
+
+	go func() {
+		lineCounter := 0
+		for MSG.Scan() {
+			nextLineData := MSG.Text()
+
+			if len(nextLineData) > 0 {
+				nextPacket := createMessage(Type, nextLineData, Rec_IP)
+				dataEncoder.Encode(nextPacket)
+
+				var replyPacket Message
+				err := dataDecoder.Decode(&replyPacket)
+
+				if err != nil {
+					fmt.Println(err)
+					break
+				}
+
+				fmt.Println("SENT: " + nextLineData + "\n" + "RECEIVED: " + replyPacket.MSG)
+
+				outputChannel <- replyPacket
+
+				lineCounter++
+			}
+		}
+
+		dataEncoder.Encode(createMessage(DISCONNECT, "", Rec_IP))
+
+		close(outputChannel)
+
+		connection.Close()
+	}()
+
+	return outputChannel
+}
+
 func (msg *Message) Reply(Type MessageType, MSG string, Rec_IP string) {
-	log.Println("[REPLY]: " + msg.Type.String() + ", " + Rec_IP)
+	fmt.Println("[REPLY]: " + msg.Type.String() + ", " + Rec_IP)
 
 	if msg.Conn == nil {
 		fmt.Println("CONNECTION NULL")

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	//"log"
 	"net"
 	"os"
 	"strings"
@@ -27,25 +26,21 @@ const (
 )
 
 
-//Command line arguments: [HOST, LOWER_PORT, UPPER_PORT, SERVER_ROUTER_ADDRESS, TEST_FILE, WaitTime]
+//Command line arguments: [HOST, PORT, SERVER_ROUTER_ADDRESS, TEST_FILE, WaitTime]
 func main() {
-	var lowerPort int
-	var upperPort int
-
-	if len(os.Args) == 7 {
+	if len(os.Args) == 6 {
 		//Parse input arguments
 		host = os.Args[1]
-		lowerPort, _ = strconv.Atoi(os.Args[2])
-		upperPort, _ = strconv.Atoi(os.Args[3])
-		sRouter_addr = os.Args[4]
-		testFile = os.Args[5]
-		initialWaitTime, _ = strconv.Atoi(os.Args[6])
-		fmt.Println("[P2P]: " + host + ", " + os.Args[2] + ", " + os.Args[3] + ", " + sRouter_addr + ", " + testFile)
+		p2p.ListenerPort = os.Args[2]
+		sRouter_addr = os.Args[3]
+		testFile = os.Args[4]
+		initialWaitTime, _ = strconv.Atoi(os.Args[5])
+		fmt.Println("[P2P]: " + host + ", " + os.Args[2] + ", " + sRouter_addr + ", " + testFile + ", " + os.Args[5])
 	} else {
 		fmt.Println("No CMD args detected. Using default settings.")
 		host = HOST
-		lowerPort = 30000
-		upperPort = 60000
+
+		p2p.ListenerPort = p2p.FindOpenPort(host, 49152, 65535)
 		
 		//Print out a prompt to the client
 		fmt.Print("Server Router Address (leave empty for default): ")
@@ -61,16 +56,26 @@ func main() {
 		}
 	}
 
-	p2p.ListenerPort = p2p.FindOpenPort(HOST, lowerPort, upperPort)
+	fmt.Println("[P2P] (" + host + ":" + p2p.ListenerPort + ") starting with router: " + sRouter_addr)
 
 	go server()      // Starting server thread
 
 	time.Sleep(time.Duration(initialWaitTime) * time.Millisecond)
 
 	// IDing self to server router to become available to peers
-	p2p.Send(p2p.IDENTIFY, "", sRouter_addr)
+	identifyResponse := p2p.Send(p2p.IDENTIFY, "", sRouter_addr)
+	identifyResponse.Conn.Close()
 	
 	client()      // Starting client thread
+
+	//Wait for server to be idle before stopping
+	for {
+		if time.Since(lastPeerInteractionTime) > p2p.MAX_PEER_IDLE_TIME {
+			break
+		}
+
+		time.Sleep(time.Millisecond * 100)
+	}
 }
 
 func printTransmissionMetrics() {
@@ -102,22 +107,27 @@ func client() {
 		testFile = reader.Text()
 	}
 
-	message_split := []string{}
+	//message_split := []string{}
 	if len(testFile) != 0 {
 		text_array, _ := ioutil.ReadFile(testFile)    // getting file
 		text = string(text_array)                 // setting to string
-		message_split = strings.Split(text, "\n") // splitting string at new line chars
 		useTerminal = false
 	}
 
-	// Instruct parent server router to find a peer for this node, via communicating with the other server router
-	fmt.Println("SENDING FIND PEER TO " + sRouter_addr)
-	foundPeerResponseMessage := p2p.Send(p2p.FIND_PEER, "", sRouter_addr)
+	var peerNode string
 
-	//Retrieve the picked node from the packet
-	peerNode := foundPeerResponseMessage.MSG
+	for len(peerNode) == 0 {
+		time.Sleep(100 * time.Millisecond)
 
-	fmt.Println("[P2P NODE]: Got Peer: " + peerNode)
+		// Instruct parent server router to find a peer for this node, via communicating with the other server router
+		foundPeerResponseMessage := p2p.Send(p2p.FIND_PEER, "", sRouter_addr)
+		foundPeerResponseMessage.Conn.Close()
+
+		//Retrieve the picked node from the packet
+		peerNode = foundPeerResponseMessage.MSG
+	}
+
+	fmt.Println("[P2P] (" + host + ":" + p2p.ListenerPort + ") Got Peer: " + peerNode)
 
 	if useTerminal {
 		for {
@@ -133,18 +143,19 @@ func client() {
 
 				//Send data from user to peer node, block until the response is received, and print the response
 				dataResponseMessage := p2p.Send(p2p.DATA, text, peerNode)
+				dataResponseMessage.Conn.Close()
 				fmt.Println("RESPONSE: " + dataResponseMessage.MSG)
 			}
 		}
 	} else {
 
-		for _, element := range message_split { // for each element of string array
-			element = strings.Trim(element, "\n") // trim end line char
-			if len(element) > 0 {
+		fileReader := bufio.NewScanner(strings.NewReader(text))
+		responseChannel := p2p.Send_Scanner(p2p.DATA, fileReader, peerNode)
 
-				//Send data from user to peer node, block until the response is received, and print the response
-				dataResponseMessage := p2p.Send(p2p.DATA, element, peerNode)
-				fmt.Println("RESPONSE: " + dataResponseMessage.MSG)
+		for {
+			_, hasMore := <-responseChannel
+			if !hasMore {
+				break
 			}
 		}
 
@@ -152,15 +163,16 @@ func client() {
 	}
 }
 
+var lastPeerInteractionTime time.Time = time.Now()
 func server() {
 	//Set up a listener on the configured protocol, host, and port
-	listener, err := net.Listen(TYPE, HOST+":"+p2p.ListenerPort)
+	listener, err := net.Listen(TYPE, host+":"+p2p.ListenerPort)
 	checkErr(err, "Error creating listener")
 
 	//Queue the listener's Close behavior to be fired once this function scope closes
 	defer listener.Close()
 
-	fmt.Println("STARTED LISTENING ON " + TYPE + "://" + HOST + ":" + p2p.ListenerPort)
+	fmt.Println("[P2P] LISTENING ON " + TYPE + "://" + host + ":" + p2p.ListenerPort)
 
 	//Essentially a while(true) loop
 	for {
@@ -168,13 +180,13 @@ func server() {
 		connection, err := listener.Accept()
 		checkErr(err, "Error accepting connection")
 
-		//fmt.Println("NEW REQUEST FROM PEER ACCEPTED - HANDLING IN NEW THREAD")
+		lastPeerInteractionTime = time.Now()
 
 		//Run the "handleRequest" function for this connection in a separate thread
 		go handleRequest(connection)
 	}
 
-	fmt.Println("SHUTTING DOWN SERVER THREAD - PEERS WON'T BE ABLE TO CONNECT")
+	fmt.Println("[P2P] SHUTTING DOWN")
 }
 
 func handleRequest(connection net.Conn) {
@@ -187,26 +199,26 @@ func handleRequest(connection net.Conn) {
 	for {
 		if err := dec.Decode(&msg); err != nil {
 			p2p.TrackEOF()
-
 			continue
 		}
+
+		lastPeerInteractionTime = time.Now()
 
 		msg.Conn = connection
 
 		switch msg.Type {
 			case p2p.DATA:
-				if len(msg.MSG) > 0 {
-					//Uppercase the message
-					message := strings.ToUpper(msg.MSG)
-
+				//if len(msg.MSG) > 0 {
 					//Write the uppercased message back to the remote connection
-					msg.Reply(p2p.DATA_RESPONSE, message, msg.Src_IP)
-				}
+					msg.Reply(p2p.DATA_RESPONSE, strings.ToUpper(msg.MSG), msg.Src_IP)
+				//}
 				break
-			case p2p.ACKNOWLEDGE:
+			case p2p.DISCONNECT:
 				break LISTENER
 		}
 	}
+
+	lastPeerInteractionTime = time.Now()
 }
 
 func checkErr(err error, message string) {

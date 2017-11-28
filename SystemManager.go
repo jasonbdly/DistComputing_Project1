@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	startPort           = 30000
+	startPort           = 49154
 	testFile            = "testfile.txt"
 	serverRouterExe_W   = "ServerRouter.exe"
 	serverRouterExe_NIX = "./ServerRouter"
@@ -45,12 +45,12 @@ func main() {
 		numNodes = 100
 	}
 
-	serverRouters := []string{"localhost:6001", "localhost:6000"}
+	serverRouters := []string{"localhost:49153", "localhost:49152"}
 
-	fmt.Println("Starting server routers")
+	fmt.Println("Starting server router 1")
 
-	serverRouter1 := exec.Command(serverRouterExe, "", "6000", serverRouters[0])
-	serverRouter1.Stdout = os.Stdout
+	serverRouter1 := exec.Command(serverRouterExe, "", "49152", serverRouters[0])
+	//serverRouter1.Stdout = os.Stdout
 	serverRouter1.Stderr = os.Stderr
 	err = serverRouter1.Start()
 	if err != nil {
@@ -58,8 +58,10 @@ func main() {
 		return
 	}
 
-	serverRouter2 := exec.Command(serverRouterExe, "", "6001", serverRouters[1])
-	serverRouter2.Stdout = os.Stdout
+	fmt.Println("Starting server router 2")
+
+	serverRouter2 := exec.Command(serverRouterExe, "", "49153", serverRouters[1])
+	//serverRouter2.Stdout = os.Stdout
 	serverRouter2.Stderr = os.Stderr
 	err = serverRouter2.Start()
 	if err != nil {
@@ -69,9 +71,9 @@ func main() {
 
 	p2pNodes := []*exec.Cmd{}
 	for i := 0; i < numNodes; i++ {
-		fmt.Println("Starting P2P Node: " + strconv.Itoa(i))
-		p2pNode := exec.Command(p2pExe, "", strconv.Itoa(startPort), strconv.Itoa(startPort+numNodes), serverRouters[i%len(serverRouters)], testFile, strconv.Itoa(20*numNodes))
-		p2pNode.Stdout = os.Stdout
+		fmt.Println("Starting P2P Node " + strconv.Itoa(i))
+		p2pNode := exec.Command(p2pExe, "", strconv.Itoa(startPort + i), serverRouters[i%len(serverRouters)], testFile, strconv.Itoa(10*numNodes))
+		//p2pNode.Stdout = os.Stdout
 		p2pNode.Stderr = os.Stderr
 		err = p2pNode.Start()
 		if err != nil {
@@ -81,7 +83,8 @@ func main() {
 	}
 
 	//Wait for all P2P nodes to finish
-	for _, p2pNode := range p2pNodes {
+	for i, p2pNode := range p2pNodes {
+		fmt.Println("Waiting on P2P Node " + strconv.Itoa(i))
 		p2pNode.Wait()
 	}
 
@@ -92,10 +95,14 @@ func main() {
 		fmt.Println("Failed to stop server router 1: " + err.Error())
 	}
 
+	fmt.Println("Server router 1 stopped")
+
 	err = serverRouter2.Process.Signal(os.Kill)
 	if err != nil {
 		fmt.Println("Failed to stop server router 2: " + err.Error())
 	}
+
+	fmt.Println("Server router 1 stopped")
 
 	fmt.Println("All processes complete.")
 }
