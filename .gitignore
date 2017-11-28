@@ -17,3 +17,6 @@
 
 ServerRouter
 P2P
+
+metrics
+test_metrics

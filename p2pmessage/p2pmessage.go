@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"math/rand"
 	"time"
+	metrics "../metricutil"
 )
 
 type MessageType int
@@ -133,6 +134,8 @@ func connectToTCP(address string) net.Conn {
 
 	fmt.Println("(" + GetLANAddress() + ") Attempting connnection to: (" + address + ")")
 
+	//attemptConnectionStartTime := time.Now()
+
 	connectionAttempts := 0
 	for connectionAttempts < MAX_CONN_ATTEMPTS && conn == nil {
 		err = nil
@@ -147,6 +150,8 @@ func connectToTCP(address string) net.Conn {
 		fmt.Println("(" + GetLANAddress() + ") Failed to make a connection to (" + address + ")\n" + err.Error() + "\n" + string(debug.Stack()))
 		os.Exit(1)
 	}
+
+	//metrics.AddVal("TCP_CONNECT", int64(time.Since(attemptConnectionStartTime)))
 
 	fmt.Println("(" + GetLANAddress() + ") SUCCESSFUL connection to: " + address)
 
@@ -182,6 +187,7 @@ func Send_Scanner(Type MessageType, MSG *bufio.Scanner, Rec_IP string) <-chan Me
 	dataDecoder := json.NewDecoder(connection)
 
 	go func() {
+		sendDataStartTime := time.Now()
 		lineCounter := 0
 		for MSG.Scan() {
 			nextLineData := MSG.Text()
@@ -198,12 +204,21 @@ func Send_Scanner(Type MessageType, MSG *bufio.Scanner, Rec_IP string) <-chan Me
 					break
 				}
 
-				fmt.Println("SENT: " + nextLineData + "\n" + "RECEIVED: " + replyPacket.MSG)
+				sendDataElapsedTime := time.Since(sendDataStartTime)
+				if sendDataElapsedTime == 0 {
+					sendDataElapsedTime = 1
+				}
+				metrics.AddVal("P2P_SEND_DATA_NS", int64(sendDataElapsedTime))
+				metrics.AddVal("P2P_TRANSMISSION_SIZE", int64(len(nextLineData)))
+				metrics.AddVal("P2P_BYTES_PER_NS", int64(len(nextLineData)) / int64(sendDataElapsedTime))
+
+				fmt.Println("SENT: " + nextLineData + "\n" + "RECEIVED: " + replyPacket.MSG + "\nTOOK: " + strconv.Itoa(int(sendDataElapsedTime)) + " ns")
 
 				outputChannel <- replyPacket
 
 				lineCounter++
 			}
+			sendDataStartTime = time.Now()
 		}
 
 		dataEncoder.Encode(createMessage(DISCONNECT, "", Rec_IP))

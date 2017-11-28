@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 	p2p "./p2pmessage"
+	metrics "./metricutil"
 )
 
 var host string = ""
@@ -56,14 +57,20 @@ func main() {
 		}
 	}
 
+	metrics.Start()
+
 	fmt.Println("[P2P] (" + host + ":" + p2p.ListenerPort + ") starting with router: " + sRouter_addr)
 
 	go server()      // Starting server thread
 
 	time.Sleep(time.Duration(initialWaitTime) * time.Millisecond)
 
+	identifyStartTime := time.Now()
 	// IDing self to server router to become available to peers
 	identifyResponse := p2p.Send(p2p.IDENTIFY, "", sRouter_addr)
+
+	metrics.SetVal("P2P_IDENTIFY_NS", int64(time.Since(identifyStartTime)))
+
 	identifyResponse.Conn.Close()
 	
 	client()      // Starting client thread
@@ -76,22 +83,9 @@ func main() {
 
 		time.Sleep(time.Millisecond * 100)
 	}
-}
 
-func printTransmissionMetrics() {
-	var total_time time.Duration = 0 * time.Second
-	fmt.Println("Transmission Rate Metrics: ")
-	for index, element := range transmissionTimes {
-		total_time = total_time + element
-		//fmt.Print("Transmission #[%v]: [%v]", index, element)
-		fmt.Print("Transmission #")
-		fmt.Print(index)
-		fmt.Print(": ")
-		fmt.Println(element)
-	}
-	fmt.Print("Average transmission time (in seconds): ")
-	fmt.Println(int(total_time) / 1000 / len(transmissionTimes))
-	return
+	//Write metric results to file
+	metrics.Stop("./metrics/P2P/node_" + host + "_" + p2p.ListenerPort + ".json")
 }
 
 func client() {
@@ -107,7 +101,6 @@ func client() {
 		testFile = reader.Text()
 	}
 
-	//message_split := []string{}
 	if len(testFile) != 0 {
 		text_array, _ := ioutil.ReadFile(testFile)    // getting file
 		text = string(text_array)                 // setting to string
@@ -115,6 +108,8 @@ func client() {
 	}
 
 	var peerNode string
+
+	findPeerStartTime := time.Now()
 
 	for len(peerNode) == 0 {
 		time.Sleep(100 * time.Millisecond)
@@ -126,6 +121,8 @@ func client() {
 		//Retrieve the picked node from the packet
 		peerNode = foundPeerResponseMessage.MSG
 	}
+
+	metrics.SetVal("P2P_FIND_PEER_NS", int64(time.Since(findPeerStartTime)))
 
 	fmt.Println("[P2P] (" + host + ":" + p2p.ListenerPort + ") Got Peer: " + peerNode)
 
@@ -141,13 +138,24 @@ func client() {
 					break
 				}
 
+				sendDataStartTime := time.Now()
 				//Send data from user to peer node, block until the response is received, and print the response
 				dataResponseMessage := p2p.Send(p2p.DATA, text, peerNode)
+
+				sendDataElapsedTime := time.Since(sendDataStartTime)
+
+				metrics.AddVal("P2P_SEND_DATA_NS", int64(sendDataElapsedTime))
+				metrics.AddVal("P2P_TRANSMISSION_SIZE", int64(len(text)))
+				metrics.AddVal("P2P_BYTES_PER_NS", int64(len(text)) / int64(sendDataElapsedTime))
+
 				dataResponseMessage.Conn.Close()
 				fmt.Println("RESPONSE: " + dataResponseMessage.MSG)
 			}
 		}
 	} else {
+		fileTransmissionStartTime := time.Now()
+
+		//NOTE: Look in p2pmessage.go - Send_Scanner for "per-line" metric code
 
 		fileReader := bufio.NewScanner(strings.NewReader(text))
 		responseChannel := p2p.Send_Scanner(p2p.DATA, fileReader, peerNode)
@@ -159,7 +167,9 @@ func client() {
 			}
 		}
 
-		//printTransmissionMetrics()
+		fileTransmissionElapsedTime := time.Since(fileTransmissionStartTime)
+		metrics.AddVal("P2P_SEND_FILE_NS", int64(fileTransmissionElapsedTime))
+		metrics.AddVal("P2P_BYTES_PER_NS", int64(len(text)) / int64(fileTransmissionElapsedTime))
 	}
 }
 
@@ -208,10 +218,10 @@ func handleRequest(connection net.Conn) {
 
 		switch msg.Type {
 			case p2p.DATA:
-				//if len(msg.MSG) > 0 {
-					//Write the uppercased message back to the remote connection
-					msg.Reply(p2p.DATA_RESPONSE, strings.ToUpper(msg.MSG), msg.Src_IP)
-				//}
+				//Write the uppercased message back to the remote connection
+				msg.Reply(p2p.DATA_RESPONSE, strings.ToUpper(msg.MSG), msg.Src_IP)
+
+				metrics.AddVal("P2P_REPLY_DATA_NS", int64(time.Since(lastPeerInteractionTime)))
 				break
 			case p2p.DISCONNECT:
 				break LISTENER
