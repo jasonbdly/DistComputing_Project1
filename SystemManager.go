@@ -18,7 +18,7 @@ import (
 
 const (
 	startPort           = 49154
-	testFile            = "testfile_large.txt"
+	testFile            = "testfile.txt"
 	serverRouterExe_W   = "ServerRouter.exe"
 	serverRouterExe_NIX = "./ServerRouter"
 	p2pExe_W            = "P2P.exe"
