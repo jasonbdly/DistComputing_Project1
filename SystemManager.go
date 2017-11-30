@@ -1,18 +1,19 @@
 package main
 
 import (
+	metrics "./metricutil"
+	p2p "./p2pmessage"
 	"bufio"
-	"io/ioutil"
 	"encoding/json"
-	"path/filepath"
-	"strings"
-	"time"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
-	metrics "./metricutil"
+	"strings"
+	"time"
 )
 
 const (
@@ -41,8 +42,14 @@ func main() {
 
 	metrics.Start()
 
-	fmt.Println("How many nodes should be created?")
 	inputReader := bufio.NewScanner(os.Stdin)
+
+	fmt.Println("Do you want to run both server routers on this machine?")
+	inputReader.Scan()
+	runBothSRsAnswer := inputReader.Text()
+	runBothSRs := strings.ToLower(runBothSRsAnswer) != "no" && strings.ToLower(runBothSRsAnswer) != "n"
+
+	fmt.Println("How many nodes should be created?")
 	inputReader.Scan()
 
 	numNodesSTR := inputReader.Text()
@@ -58,11 +65,23 @@ func main() {
 
 	serverRouters := []string{"localhost:49153", "localhost:49152"}
 
+	var otherSRAddress string
+	if !runBothSRs {
+		fmt.Println("=== The server router's address is: (" + p2p.GetLANAddress() + "49152) ===")
+
+		fmt.Println("Enter the other server router's full address (host:port): ")
+		inputReader.Scan()
+
+		otherSRAddress = inputReader.Text()
+	} else {
+		otherSRAddress = serverRouters[0]
+	}
+
 	fmt.Println("Starting server router 1")
 
 	sr1StartTime := time.Now()
 
-	serverRouter1 := exec.Command(serverRouterExe, "", "49152", serverRouters[0])
+	serverRouter1 := exec.Command(serverRouterExe, "", "49152", otherSRAddress)
 	//serverRouter1.Stdout = os.Stdout
 	serverRouter1.Stderr = os.Stderr
 	err = serverRouter1.Start()
@@ -73,20 +92,24 @@ func main() {
 
 	metrics.AddVal("ServerRouter_Startup_Time_NS", int64(time.Since(sr1StartTime)))
 
-	fmt.Println("Starting server router 2")
+	var serverRouter2 *exec.Cmd
+	var sr2StartTime time.Time
+	if runBothSRs {
+		fmt.Println("Starting server router 2")
 
-	sr2StartTime := time.Now()
+		sr2StartTime = time.Now()
 
-	serverRouter2 := exec.Command(serverRouterExe, "", "49153", serverRouters[1])
-	//serverRouter2.Stdout = os.Stdout
-	serverRouter2.Stderr = os.Stderr
-	err = serverRouter2.Start()
-	if err != nil {
-		fmt.Println("Failed to start server router 2: " + err.Error())
-		return
+		serverRouter2 = exec.Command(serverRouterExe, "", "49153", serverRouters[1])
+		//serverRouter2.Stdout = os.Stdout
+		serverRouter2.Stderr = os.Stderr
+		err = serverRouter2.Start()
+		if err != nil {
+			fmt.Println("Failed to start server router 2: " + err.Error())
+			return
+		}
+
+		metrics.AddVal("ServerRouter_Startup_Time_NS", int64(time.Since(sr2StartTime)))
 	}
-
-	metrics.AddVal("ServerRouter_Startup_Time_NS", int64(time.Since(sr2StartTime)))
 
 	nodeStartTimes := []time.Time{}
 	p2pNodes := []*exec.Cmd{}
@@ -94,7 +117,14 @@ func main() {
 		fmt.Println("Starting P2P Node " + strconv.Itoa(i))
 		nodeStartTimes = append(nodeStartTimes, time.Now())
 
-		p2pNode := exec.Command(p2pExe, "", strconv.Itoa(startPort + i), serverRouters[i%len(serverRouters)], testFile, strconv.Itoa(10*numNodes))
+		var srAddress string
+		if runBothSRs {
+			srAddress = serverRouters[i%len(serverRouters)]
+		} else {
+			srAddress = otherSRAddress
+		}
+
+		p2pNode := exec.Command(p2pExe, "", strconv.Itoa(startPort+i), srAddress, testFile, strconv.Itoa(10*numNodes))
 		p2pNode.Stdout = os.Stdout
 		p2pNode.Stderr = os.Stderr
 		err = p2pNode.Start()
@@ -126,14 +156,16 @@ func main() {
 
 	fmt.Println("Server router 1 stopped")
 
-	err = serverRouter2.Process.Signal(os.Kill)
-	if err != nil {
-		fmt.Println("Failed to stop server router 2: " + err.Error())
+	if runBothSRs {
+		err = serverRouter2.Process.Signal(os.Kill)
+		if err != nil {
+			fmt.Println("Failed to stop server router 2: " + err.Error())
+		}
+
+		metrics.AddVal("ServerRouter_Running_Time_NS", int64(time.Since(sr2StartTime)))
+
+		fmt.Println("Server router 2 stopped")
 	}
-
-	metrics.AddVal("ServerRouter_Running_Time_NS", int64(time.Since(sr2StartTime)))
-
-	fmt.Println("Server router 2 stopped")
 
 	fmt.Println("Aggregating Metrics...")
 
@@ -144,7 +176,7 @@ func main() {
 
 	var nodeMetricData map[string]int64
 	for _, nodeMetricFile := range nodeMetricFiles {
-		nodeMetricFileData, err := ioutil.ReadFile(filepath.Join(strings.Split("./metrics/P2P/" + nodeMetricFile.Name(), "/")...))
+		nodeMetricFileData, err := ioutil.ReadFile(filepath.Join(strings.Split("./metrics/P2P/"+nodeMetricFile.Name(), "/")...))
 		if err != nil {
 			fmt.Println("Failed to read metric file for node " + nodeMetricFile.Name() + ": " + err.Error())
 			break
@@ -162,7 +194,7 @@ func main() {
 	}
 
 	fmt.Println("Writing Metrics to File System...")
-	
+
 	metrics.Stop("./metrics/SystemManager_" + strconv.Itoa(numNodes) + "_Nodes.json")
 
 	fmt.Println("All processes complete.")

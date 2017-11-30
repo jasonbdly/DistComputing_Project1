@@ -1,21 +1,21 @@
 package main
 
 import (
+	p2p "./p2pmessage"
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"strconv"
-	"math/rand"
 	"time"
-	p2p "./p2pmessage"
 )
 
 const (
-	HOST        = ""
-	PORT        = "5556"
-	TYPE        = "tcp"
+	HOST          = ""
+	PORT          = "5556"
+	TYPE          = "tcp"
 	SERVER_ROUTER = ""
 )
 
@@ -170,45 +170,45 @@ func handleConnection(connection net.Conn) {
 
 	var msg p2p.Message
 	dec := json.NewDecoder(connection)
-	
+
 	for {
 		if err := dec.Decode(&msg); err != nil {
 			p2p.TrackEOF()
 			continue
 		}
-		
+
 		msg.Conn = connection
 
 		switch msg.Type {
-			case p2p.IDENTIFY:
-				fmt.Println("[SERVERROUTER] IDENTIFY FROM: " + msg.Src_IP)
+		case p2p.IDENTIFY:
+			fmt.Println("[SERVERROUTER] IDENTIFY FROM: " + msg.Src_IP)
 
-				//Add sender to list of registered nodes
-				nodeRegistry = append(nodeRegistry, msg.Src_IP)
+			//Add sender to list of registered nodes
+			nodeRegistry = append(nodeRegistry, msg.Src_IP)
 
-				//Send acknowledgement packet back to node
-				msg.Reply(p2p.ACKNOWLEDGE, "", msg.Src_IP)
+			//Send acknowledgement packet back to node
+			msg.Reply(p2p.ACKNOWLEDGE, "", msg.Src_IP)
 
-				break
-			case p2p.FIND_PEER:
-				fmt.Println("[SERVERROUTER] FIND_PEER FROM: " + msg.Src_IP)
+			break
+		case p2p.FIND_PEER:
+			fmt.Println("[SERVERROUTER] FIND_PEER FROM: " + msg.Src_IP)
 
-				// Send request to other server router to pick a node for the p2p connection
-				findNodeResponse := p2p.Send(p2p.PICK_NODE, "", sRouter_addr)
-				findNodeResponse.Conn.Close()
+			// Send request to other server router to pick a node for the p2p connection
+			findNodeResponse := p2p.Send(p2p.PICK_NODE, "", sRouter_addr)
+			findNodeResponse.Conn.Close()
 
-				// Send the IP of the picked node to the peer that originally requested a connection
-				msg.Reply(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
+			// Send the IP of the picked node to the peer that originally requested a connection
+			msg.Reply(p2p.FIND_PEER_RESPONSE, findNodeResponse.MSG, msg.Src_IP)
 
-				break
-			case p2p.PICK_NODE:
-				fmt.Println("[SERVERROUTER] PICK_NODE FROM: " + msg.Src_IP)
+			break
+		case p2p.PICK_NODE:
+			fmt.Println("[SERVERROUTER] PICK_NODE FROM: " + msg.Src_IP)
 
-				//pick random peer
-				selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
-				msg.Reply(p2p.PICK_NODE_RESPONSE, selected_peer_ip, msg.Src_IP)
+			//pick random peer
+			selected_peer_ip := nodeRegistry[rand.Intn(len(nodeRegistry))]
+			msg.Reply(p2p.PICK_NODE_RESPONSE, selected_peer_ip, msg.Src_IP)
 
-				break
+			break
 		}
 	}
 
